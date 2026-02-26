@@ -1,0 +1,55 @@
+parameters:
+- name: cfg
+  type: object
+
+# https://marketplace.visualstudio.com/items?itemName=Fizcko.azure-devops-vault-interaction
+steps:
+- ${{ if parameters.cfg[0] }}:
+  - ${{ each v in parameters.cfg}}:
+    - template: ./task-base.yaml
+      parameters:
+        task: VaultReadKV@4
+        displayName: Read Secrets from Vault
+        cfg: ${{ v }}
+        override:
+          strNamespaces: ${{coalesce(v.strNamespaces,'adv/pwc-digital-low' )}}
+          strAuthType: ${{coalesce(v.strAuthType,'approle' )}}
+          ${{if eq(v.strAuthType,'clientToken') }}:
+            strToken: ${{v.strToken}}
+          ${{else}}:
+            strRoleID: ${{v.strRoleID}}
+            strSecretID: ${{v.strSecretID}}
+          strKVEnginePath: ${{coalesce(v.strKVEnginePath,'kv' )}}
+          strSecretPath: ${{v.strSecretPath}}
+          strVariablePrefix: ${{v.strVariablePrefix}}
+        protected:
+          strUrl: 'https://vault-us.pwcinternal.com'
+          ignoreCertificateChecks: true
+          useProxy: 'none'
+          kvVersion: 'v2'
+          strPrefixType: 'custom'
+          replaceCR: false
+- ${{ elseif parameters.cfg }}:
+  - template: ./task-base.yaml
+    parameters:
+      task: VaultReadKV@4
+      displayName: Read Secrets from Vault
+      cfg: ${{ parameters.cfg }}
+      override:
+        strNamespaces: ${{coalesce(parameters.cfg.strNamespaces,'adv/pwc-digital-low' )}}
+        strAuthType: ${{coalesce(parameters.cfg.strAuthType,'approle' )}}
+        ${{if eq(parameters.cfg.strAuthType,'clientToken') }}:
+          strToken: ${{parameters.cfg.strToken}}
+        ${{else}}:
+          strRoleID: ${{parameters.cfg.strRoleID}}
+          strSecretID: ${{parameters.cfg.strSecretID}}
+        strKVEnginePath: ${{coalesce(parameters.cfg.strKVEnginePath,'kv' )}}
+        strSecretPath: ${{parameters.cfg.strSecretPath}}
+        strVariablePrefix: ${{parameters.cfg.strVariablePrefix}}
+      protected:
+        strUrl: 'https://vault-us.pwcinternal.com'
+        ignoreCertificateChecks: true
+        useProxy: 'none'
+        kvVersion: 'v2'
+        strPrefixType: 'custom'
+        replaceCR: false

@@ -1,0 +1,131 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: prepareSteps
+  type: object
+  default: null
+- name: buildSteps
+  type: object
+- name: packageSteps
+  type: object
+  default: null
+- name: publishSteps
+  type: object
+  default: null
+- name: vars
+  type: object
+  default: null
+- name: targetPath
+  type: string
+  default: ''
+
+jobs:
+- job: ${{replace(coalesce(parameters.cfg.name, parameters.ctx.name),'-','_') }}
+  ${{ if parameters.cfg.dependsOn }}:
+    dependsOn: ${{parameters.cfg.dependsOn }}
+    condition: succeeded()
+  displayName: ${{parameters.ctx.display}}
+  ${{ if parameters.cfg.jobOptions }}:
+    ${{ each v in parameters.cfg.jobOptions }}:
+      ${{ v.key }}: ${{ v.value }}
+  ${{ if parameters.cfg.pool }}:
+    pool: '${{ parameters.cfg.pool }}'
+  ${{ if or(parameters.vars ,parameters.cfg.variables)}}:
+    variables:
+    - ${{ each v in parameters.vars }}:
+      - ${{ v }}
+    - ${{ each v in parameters.cfg.variables }}:
+      - ${{ v }}
+  steps:
+  - ${{ if or(parameters.cfg.checkout, parameters.ctx.checkout) }}:
+    - checkout: ${{ coalesce(parameters.cfg.checkout.name, parameters.ctx.checkout.name, 'self') }}
+      persistCredentials: ${{ coalesce(parameters.cfg.checkout.persistCredentials, 'false') }}
+      displayName: ${{ coalesce(parameters.cfg.checkout.displayName, parameters.ctx.checkout.name, 'Checkout main repository') }}
+      path: ${{ coalesce(parameters.cfg.checkout.path, parameters.ctx.checkout.path, './s/') }}
+  - task: tagBuildOrRelease@0
+    inputs:
+      type: 'Build'
+      tags: |
+        '$(Build.SourceBranchName)-$(Build.BuildNumber)'
+        "${{parameters.ctx.ver}}"
+        '$(appId)'
+  - script: echo '${{parameters.ctx.ver}}'
+    displayName: AppVersion ${{parameters.ctx.ver}}
+  - ${{ if parameters.cfg.vault }}:
+    - template: ../steps/task-vault.yaml
+      parameters:
+        cfg: ${{ parameters.cfg.vault }}
+  - ${{ if parameters.cfg.mock }}:
+    - template: ../steps/mock-build.yaml
+      parameters:
+        cfg: ${{parameters.cfg}}
+        ctx: ${{parameters.ctx}}
+  - ${{ else }}:
+    ###################### PREPARE ENVIRONMENTS ######################
+    - ${{ each v in parameters.prepareSteps }}:
+      - ${{ v }}
+
+    ####################### BUILD ####################################
+    - ${{ each v in parameters.cfg.beforeBuild }}:
+      - ${{ v }}
+    - ${{ if parameters.cfg.replaceVariables }}:
+      - template: ../steps/replace-variables.yaml
+        parameters:
+          cfg: ${{parameters.cfg}}
+          ctx: ${{parameters.ctx}}
+    - ${{ if parameters.cfg.customBuild }}:
+      - ${{ each v in parameters.cfg.customBuild }}:
+        - ${{ v }}
+    - ${{ else }}:
+      - ${{ each v in parameters.buildSteps }}:
+        - ${{ v }}
+
+    - ${{ each v in parameters.cfg.postBuild }}:
+      - ${{ v }}
+
+    ####################### PACKAGE ##################################
+    - ${{ each v in parameters.cfg.beforePackage }}:
+      - ${{ v }}
+
+    - ${{ if parameters.cfg.customPackage }}:
+      - ${{ each v in parameters.cfg.customPackage }}:
+        - ${{ v }}
+    - ${{ else }}:
+      - ${{ each v in parameters.packageSteps }}:
+        - ${{ v }}
+      - ${{ if parameters.cfg.image }}:
+        - template: ../steps/package-docker.yaml
+          parameters:
+            cfg: ${{parameters.cfg}}
+            ctx: ${{parameters.ctx}}
+    - ${{ each v in parameters.cfg.postPackage }}:
+      - ${{ v }}
+
+    ####################### PUBLISH ##################################
+    - ${{ each v in parameters.cfg.beforePublish }}:
+      - ${{ v }}
+
+    - ${{ if parameters.cfg.customPublish }}:
+      - ${{ each v in parameters.cfg.customPublish }}:
+        - ${{ v }}
+    - ${{ else }}:
+      - ${{ each v in parameters.publishSteps }}:
+        - ${{ v }}
+    - ${{ if parameters.cfg.uploadJfrog }}:
+      - template: ../steps/upload-jfrog.yaml
+        parameters:
+          cfg: ${{parameters.cfg.uploadJfrog}}
+          ctx: ${{parameters.ctx}}
+
+  - publish: ${{coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath)}}
+    artifact: "${{ coalesce(parameters.cfg.artifactName, parameters.ctx.artifactName,'Build')}}"
+    condition: succeeded()
+  - publish: ${{coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath)}}
+    artifact: "${{ coalesce(parameters.cfg.artifactName, parameters.ctx.artifactName,'Build')}}-Attempt$(System.JobAttempt)"
+    condition: failed()
+
+  - ${{ each v in parameters.cfg.postPublish }}:
+    - ${{ v }}

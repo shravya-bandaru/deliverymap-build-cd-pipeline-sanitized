@@ -1,0 +1,33 @@
+parameters:
+- name: spec
+  type: object
+- name: scan
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: args
+  type: object
+  default: null
+- name: filter
+  type: object
+  default: null
+
+stages:
+- template: ./scan.yaml
+  parameters:
+    spec: ${{parameters.spec}}
+    ctx: ${{parameters.ctx}}
+    args: ${{parameters.args}}
+    filter: ${{parameters.filter}}
+    # ensure container scan as a default whenever any image is build in previous stages
+    ${{ if ne(length(parameters.ctx.containers),0) }}:
+      scan:
+        ${{ if parameters.scan }}:
+          ${{each ss in parameters.scan }}:
+            ${{ ss.key }}: ${{ss.value}}
+        ${{if or(not(parameters.scan),not(parameters.scan.containerSecurity))}}:
+          containerSecurity:
+            enabled: true
+    ${{ else }}:
+      scan: ${{ parameters.scan }}

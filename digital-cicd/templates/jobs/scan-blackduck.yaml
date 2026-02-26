@@ -1,0 +1,100 @@
+# parameters
+# args:
+#   language: optional, add support for specific language. available values: go, nodejs, gradlew
+#   mavenAuth: optional, maven feeds names. default: ''
+#   mavenUseServiceConnections: when using maven artifactory from another organization, give the service connection name
+#   endpoint: service connection, default: blackduck-connection
+#   project: profile name
+#   extraArgs: extra configurations, https://blackducksoftware.github.io/synopsys-detect/6.0.0/properties/Configuration/paths/#detector-directory-exclusions-advanced
+#   filterPattern: default '**', multiline list
+
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: artifacts
+  type: object
+  default: null
+- name: config
+  type: object
+  default: null
+
+
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    artifacts: ${{ parameters.artifacts }}
+    prepareSteps:
+    #################### USE FOR STANDALONE PIPELINE ###############
+    - ${{if parameters.artifacts}}:
+      - checkout: none
+      - ${{ each v in parameters.artifacts}}:
+        - task: DownloadPipelineArtifact@2
+          inputs:
+            artifact: ${{ v.name }}
+            itemPattern: ${{ v.patterns }}
+            path: $(Build.SourcesDirectory)/${{ v.name }}
+    #################### PREPARE ENVIRONMENTS ######################
+    - bash: |
+            echo "##vso[task.setvariable variable=pythonRuntimeDependency]"
+            echo "##vso[task.setvariable variable=gradlewRuntimeDependency]"
+            echo "##vso[task.setvariable variable=detectRuntimeDependency]"
+      displayName: set default runtimeDependency
+    - ${{ if parameters.cfg.prerequirements[0] }}:
+      - ${{ each l in parameters.cfg.prerequirements }}:
+        - template: ../steps/blackduck-install-dependecy.yaml
+          parameters:
+            config: ${{ l }}
+    - ${{ if parameters.cfg.language }}:
+      - template: ../steps/blackduck-install-dependecy.yaml
+        parameters:
+          config:
+            type: ${{ parameters.cfg.language }}
+          cfg: ${{ parameters.cfg }}
+
+    ####################### SUBMIT CODE ##############################
+    scanSteps:
+    - ${{if parameters.config}}:
+      - ${{each p in parameters.config}}:
+        - ${{ if eq(coalesce(p.enable,'true'),'true') }}:
+          - task: SynopsysDetectTask@9
+            displayName: Synopsys Detect - Blackduck Scan
+            ${{ if parameters.cfg.taskOptions }}:
+              ${{ each v in parameters.cfg.taskOptions }}:
+                ${{ v.key }}: ${{ v.value }}
+            inputs:
+              BlackDuckService: ${{ coalesce(parameters.cfg.endpoint, 'blackduck-connection') }}
+              DetectVersion: 'latest'
+              DetectFolder: $(Agent.TempDirectory)
+              DetectArguments: |
+                --detect.project.name=${{ coalesce(p.project,parameters.cfg.project)}}
+                --detect.project.version.name=${{ coalesce(p.version,parameters.cfg.version,parameters.ctx.ver,'$(ver)') }}
+                --detect.source.path=$(Build.SourcesDirectory)/${{ p.artifact }}
+                --detect.detector.search.depth=10
+                ${{ coalesce(p.extraArgs,parameters.cfg.extraArgs)}}
+                $(detectRuntimeDependency)
+    - ${{else}}:
+      - task: SynopsysDetectTask@9
+        displayName: Synopsys Detect - Blackduck Scan
+        ${{ if parameters.cfg.taskOptions }}:
+          ${{ each v in parameters.cfg.taskOptions }}:
+            ${{ v.key }}: ${{ v.value }}
+        ${{ if parameters.cfg.prerequirements }}:
+          ${{ each l in parameters.cfg.prerequirements }}:
+            ${{ if l.type.python }}:
+              env:
+                PATH: $(Build.SourcesDirectory)/venv/bin:$(PATH)
+        inputs:
+          BlackDuckService: ${{ coalesce(parameters.cfg.endpoint, 'blackduck-connection') }}
+          DetectVersion: 'latest'
+          DetectFolder: $(Agent.TempDirectory)
+          DetectArguments: |
+            --detect.project.name=${{parameters.cfg.project}}
+            --detect.project.version.name=${{ coalesce(parameters.cfg.version,parameters.ctx.ver,'$(ver)') }}
+            --detect.source.path=${{ coalesce(parameters.cfg.rootPath,'$(Build.SourcesDirectory)') }}
+            --detect.detector.search.depth=10 $(detectRuntimeDependency)
+            ${{parameters.cfg.extraArgs}}

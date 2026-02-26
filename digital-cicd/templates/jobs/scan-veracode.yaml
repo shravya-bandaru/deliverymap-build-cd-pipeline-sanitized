@@ -1,0 +1,109 @@
+# parameters
+# args:
+#  profile: veracode application profile.
+#  artifactFilePath: path to the single file to be uploaded for scan.
+#                   when it's provided, patterns will be ignored, and zip package will not be created.
+#  patterns: patterns for filter files when downloading multple files to scan. default is "**"
+#           ref: https://docs.microsoft.com/en-us/azure/devops/pipelines/tasks/file-matching-patterns?view=azure-devops
+#  continueOnError: don't fail the pipeline, default is true
+#  endpoint: service connection name, default is 'veracode-connection'
+#  sandboxName: default is the git repo name
+#  maximumWaitTime: default is 360s
+#  createSandBox: default is true
+#  importResults: default is false
+#  specific: optional, download artifacts from a specific build. if null, then download from current pipeline.
+#    project: Azure DevOps project name. e.g. DX
+#    definition: pipeline name
+
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: artifacts
+  type: object
+  default: null
+- name: config
+  type: object
+  default: null
+- name: precompile
+  type: object
+  default: null
+
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    artifacts: ${{ parameters.artifacts }}
+    targetPath: ${{ coalesce(parameters.cfg.targetPath,'$(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/')}}
+    prepareSteps:
+    ###  PACKAGE FILES ###
+    - ${{if parameters.artifacts}}:
+      - ${{ each v in parameters.artifacts}}:
+        - task: DownloadPipelineArtifact@2
+          inputs:
+            artifact: ${{ v.name }}
+            itemPattern: ${{ coalesce(parameters.cfg.patterns, v.patterns) }}
+            path: $(Pipeline.Workspace)/s/${{ v.name }}
+        - task: ArchiveFiles@2
+          inputs:
+            rootFolderOrFile: '$(Pipeline.Workspace)/s/${{ v.name }}'
+            includeRootFolder: false
+            archiveType: 'zip'
+            archiveFile: '$(Pipeline.Workspace)/s/${{ v.name }}/veracode-${{ v.name }}-$(Build.BuildNumber).zip'
+            replaceExistingArchive: true
+        - bash: |
+                cd $(Pipeline.Workspace)/s
+                mkdir veracode-$(Build.BuildNumber)
+                mkdir veracodeScan-$(Build.BuildNumber)
+                cd veracodeScan-$(Build.BuildNumber)
+                mkdir veracode-${{ v.name }}-$(Build.BuildNumber)
+                mv '$(Pipeline.Workspace)/s/${{ v.name }}/veracode-${{ v.name }}-$(Build.BuildNumber).zip' $(Pipeline.Workspace)/s/veracodeScan-$(Build.BuildNumber)/veracode-${{ v.name }}-$(Build.BuildNumber)
+                ls  && pwd
+          displayName: ${{ v.name }}
+    - ${{if not(parameters.cfg.file) }}:
+      - task: ArchiveFiles@2
+        inputs:
+          ${{if eq(lower(coalesce(parameters.cfg.autoDownload,'true')),'true') }}:
+            rootFolderOrFile: ${{ coalesce(parameters.cfg.copyFiles.targetFolder, '$(Pipeline.Workspace)/veracode-$(Build.BuildNumber)') }}
+            archiveFile: ${{ coalesce(parameters.cfg.targetPath,'$(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/veracode-$(Build.BuildNumber).zip') }}
+          ${{else}}:
+            rootFolderOrFile: ${{ coalesce(parameters.cfg.copyFiles.targetFolder, '$(Pipeline.Workspace)/s') }}
+            archiveFile: ${{ coalesce(parameters.cfg.targetPath,'$(Build.SourcesDirectory)/veracode-$(Build.BuildNumber).zip') }}
+          includeRootFolder: false
+          archiveType: 'zip'
+          replaceExistingArchive: true
+    scanSteps:
+    - task: Veracode@3.19.0
+      continueOnError: ${{ coalesce(parameters.cfg.continueOnError,false) }}
+      inputs:
+        ConnectionDetailsSelection: 'Service Connection'
+        AnalysisService: ${{ coalesce(parameters.cfg.endpoint,'veracode-connection') }}
+        veracodeAppProfile: ${{ parameters.cfg.profile }}
+        version: ${{ coalesce(parameters.cfg.version,parameters.ctx.ver,'$(Build.BuildNumber)') }}
+        ${{ if eq(lower(coalesce(parameters.cfg.autoDownload,'true')),'true') }}:
+          filepath: $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/${{ coalesce(parameters.cfg.file, 'veracode-$(Build.BuildNumber).zip') }}
+        ${{else}}:
+          ${{ if parameters.artifacts.name[1]}}:
+            filepath: $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/${{ coalesce(parameters.cfg.file, 'veracode-$(Build.BuildNumber).zip') }}
+          ${{ if eq(coalesce(parameters.cfg.submitDir,'false'),'true')  }}:
+            filepath: $(Pipeline.Workspace)/s/veracodeScan-$(Build.BuildNumber)
+          ${{else}}:
+            ${{ if parameters.cfg.targetPath }}:
+              filepath: ${{ parameters.cfg.targetPath }}
+            ${{ else }}:
+              filepath: $(Build.SourcesDirectory)/${{ coalesce(parameters.cfg.file, parameters.cfg.scanFile, 'veracode-$(Build.BuildNumber).zip') }}
+        ${{ if eq(coalesce(lower(parameters.cfg.createSandBox),'true'),'true') }}:
+          sandboxName: ${{ coalesce(parameters.cfg.sandboxName,'$(Build.Repository.Name)') }}
+          createSandBox: ${{ coalesce(parameters.cfg.createSandBox,true) }}
+        importResults: ${{ coalesce(parameters.cfg.importResults,false) }}
+        maximumWaitTime: ${{ coalesce(parameters.cfg.maximumWaitTime,'360') }}
+        optargs: ${{ coalesce(parameters.cfg.veracodeOptions,'-deleteincompletescan 1 -exclude src/tests,coverage,dist/test,dist/tests,.git') }}
+        failBuildIfUploadAndScanBuildStepFails: true
+        failBuildOnPolicyFail: false
+      #      optargs: |
+      #        -deleteincompletescan
+      #        -exclude *.png,
+      #   -include

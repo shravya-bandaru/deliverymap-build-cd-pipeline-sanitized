@@ -1,0 +1,60 @@
+# parameters
+# args:
+#  profile: veracode application profile.
+#  artifactFilePath: path to the single file to be uploaded for scan.
+#                   when it's provided, patterns will be ignored, and zip package will not be created.
+#  patterns: patterns for filter files when downloading multple files to scan. default is "**"
+#           ref: https://docs.microsoft.com/en-us/azure/devops/pipelines/tasks/file-matching-patterns?view=azure-devops
+#  continueOnError: don't fail the pipeline, default is true
+#  endpoint: service connection name, default is 'veracode-connection'
+#  sandboxName: default is the git repo name
+#  maximumWaitTime: default is 360s
+#  createSandBox: default is true
+#  importResults: default is false
+#  specific: optional, download artifacts from a specific build. if null, then download from current pipeline.
+#    project: Azure DevOps project name. e.g. DX
+#    definition: pipeline name
+
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    targetPath: $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/
+    prepareSteps:
+    ###  PACKAGE FILES ###
+    - ${{if not(parameters.cfg.file) }}:
+      - task: ArchiveFiles@2
+        inputs:
+          ${{if eq(lower(coalesce(parameters.cfg.autoDownload,'true')),'true') }}:
+            rootFolderOrFile: '$(Pipeline.Workspace)/veracode-$(Build.BuildNumber)'
+          ${{else}}:
+            rootFolderOrFile: '$(Build.SourcesDirectory)'
+          includeRootFolder: false
+          archiveType: 'zip'
+          archiveFile: '$(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/veracode-$(Build.BuildNumber).zip'
+          replaceExistingArchive: true
+    scanSteps:
+    - bash: |
+        echo "Veracode"
+        curl -O -L https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
+        unzip -o pipeline-scan-LATEST.zip
+        pwd && ls -la #CIP_Utilities/cip-utilities/export/artifacts/*.jar
+        if [ ${{ parameters.cfg.scanFile }}=="source.zip" ];then
+          echo "scan js file"
+          find . -name "*.js" -print  | zip $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/source.zip -@
+        fi
+        if [ ${{ parameters.cfg.scanFile }}=="py.zip" ];then
+          echo "scan python file";
+          find . -name "*.py" -print  | zip $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/py.zip -@
+        fi
+        java -jar  pipeline-scan.jar -f $(Pipeline.Workspace)/veracode-$(Build.BuildNumber)/${{ coalesce(parameters.cfg.file, 'veracode-$(Build.BuildNumber).zip') }} --veracode_api_id ${{ parameters.cfg.apiId }} --veracode_api_key ${{ parameters.cfg.apiKey }} ${{ parameters.cfg.veracodeOptions }}
+
+      displayName: 'Run Veracode Pipeline Scan'

@@ -1,0 +1,48 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: variables
+  type: object
+  default: null
+stages:
+- stage: Start
+  jobs:
+  - job: init
+    steps:
+    # mark this pipeline as a status-tagging supported pipeline
+    - checkout: none
+    - task: tagBuildOrRelease@0
+      inputs:
+        type: 'Build'
+        tags: |
+          status-tagging:v1
+    - ${{if parameters.ctx.debug }}:
+      - template: /templates/steps/steps-preview-pipeline.yaml
+      - powershell: |
+          Write-Host '${{convertToJson(parameters.variables)}}'
+        displayName: variables
+
+  - ${{if eq(lower(coalesce(parameters.ctx.validation,true)),'true')}}:
+    - job: validation
+      condition: eq('$(Agent.OS)', 'Linux')
+      container: cli
+      steps:
+      - ${{ if parameters.cfg.scan.gitLint }}:
+        - script: |
+            echo '${{convertToJson(parameters.cfg.scan.gitLint)}}' |python /app/cli.py pipeline validate gitLint -s scan-git-lint
+          displayName: validate gitLint config
+  - ${{if eq(lower(coalesce(parameters.ctx.gitLint,true)),'true')}}:
+    - template: ../jobs/scan-git-lint.yaml
+      parameters:
+        ctx:
+          name: gitLint
+        ${{ if parameters.cfg.scan.gitLint }}:
+          cfg: ${{parameters.cfg.scan.gitLint}}
+  - ${{if parameters.cfg.version.gitVersion}}:
+    - ${{if eq(lower(coalesce(parameters.ctx.gitVersion,true)),'true')}}:
+      - job: GitVersion
+        steps:
+        - template: ../steps/git-version.yaml

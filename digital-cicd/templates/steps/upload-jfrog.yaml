@@ -1,0 +1,86 @@
+# Parameters
+#  cfg: declared configurations
+#    project: default digital-dx
+#    to: target
+#    from: source
+#    connection: default 'artifacts-west.pwc.com'
+#    artifactory: default 'w00014-pwc-us-digital-devops-generic'
+#  ctx: pipeline context values, e.g. rootPath or app_id of current build
+
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+steps:
+- ${{ if parameters.cfg.zip }}:
+  - task: ArchiveFiles@2
+    inputs:
+      archiveFile: ${{ parameters.cfg.to }}
+      archiveType: zip
+      includeRootFolder: false
+      replaceExistingArchive: true
+      rootFolderOrFile: ${{ parameters.cfg.from }}
+
+- ${{ if parameters.cfg.debug }}:
+  - ${{ if eq(parameters.cfg.zip, 'true') }}:
+    - bash: |
+        echo '${{convertToJson(parameters.cfg)}}'
+        echo '
+        artifactoryService: "${{coalesce(parameters.cfg.connection,'artifacts-west.pwc.com')}}"
+        "target": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.to}}",
+        "pattern": "${{parameters.cfg.to}}"
+        '
+      displayName: upload(debug)
+  - ${{else}}:
+    - bash: |
+        echo '${{convertToJson(parameters.cfg)}}'
+        echo '
+        artifactoryService: "${{coalesce(parameters.cfg.connection,'artifacts-west.pwc.com')}}"
+        "target": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.to}}",
+        "pattern": "${{parameters.cfg.from}}"
+        '
+      displayName: upload(debug)
+- ${{ if parameters.cfg.mock }}:
+  - bash: |
+      echo 'mocking'
+    displayName: upload(mocking)
+- ${{ else }}:
+  - template: ./task-base.yaml
+    parameters:
+      task: ArtifactoryGenericUpload@2
+      displayName: Artifactory Generic Upload
+      cfg: ${{ parameters.cfg }}
+      ctx: ${{ parameters.ctx }}
+      override:
+        artifactoryService: "${{coalesce(parameters.cfg.connection,'artifacts-west.pwc.com')}}"
+        failNoOp: "${{coalesce(parameters.cfg.failNoOp,'true')}}"
+        ${{ if eq(parameters.cfg.zip, 'true') }}:
+          fileSpec: |
+            {
+              "files": [
+                {
+                  "target": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.to}}",
+                  "pattern": "${{parameters.cfg.to}}"
+                }
+              ]
+            }
+        ${{else}}:
+          fileSpec: |
+            {
+              "files": [
+                {
+                  "target": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.to}}",
+                  "pattern": "${{parameters.cfg.from}}"
+                }
+              ]
+            }
+      protected:
+        specSource: 'taskConfiguration'
+      configurable:
+      # https://www.jfrog.com/confluence/display/JFROG/Artifactory+Azure+DevOps+Extension
+      - buildName
+      - buildNumber
+      - collectBuildInfo

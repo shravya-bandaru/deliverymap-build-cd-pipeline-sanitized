@@ -1,0 +1,226 @@
+parameters:
+- name: cfg
+  type: object
+  default: null
+- name: ctx
+  type: object
+  default: null
+- name: const
+  type: object
+  default:
+    mainline: |
+      assembly-versioning-scheme: MajorMinorPatch
+      mode: Mainline
+
+      branches:
+        master:
+          mode: ContinuousDeployment
+          regex: ^master$
+          tag: dev
+          increment: Minor
+          is-source-branch-for: ['beta', 'stable']
+
+        legacy:
+          mode: ContinuousDeployment
+          regex: legacy/.*
+          tag: dev
+          increment: Minor
+          source-branches: ['master']
+          is-source-branch-for: ['beta', 'stable']
+
+        pull-request:
+          regex: ^(pull|pull\-requests|pr)[/-]
+          mode: ContinuousDeployment
+          tag: 'PullRequest'
+          tag-number-pattern: '[/-](?<number>\d+)[-/]'
+          increment: Minor # use minor to avoid expensive commit search
+
+        beta:
+          mode: ContinuousDeployment
+          regex: ^release/beta/.*
+          tag: beta
+          increment: none
+          source-branches: ['master','legacy']
+
+        stable:
+          regex: ^release/stable/.*
+          tag: ''
+          increment: Patch
+          source-branches: ['master','beta','legacy']
+          is-mainline: true
+
+        dev:
+          mode: ContinuousDeployment
+          regex: ^dev/.*?/(.*?)
+          tag: dev.{BranchName}
+          source-branches: ['master', 'legacy', 'stable', 'projects', 'feature']
+          increment: none
+
+        projects:
+          tag: proj-{BranchName}
+          regex: ^projects/(.*?)
+          source-branches: ['master','legacy']
+          increment: none
+
+        feature:
+          tag: feature.{BranchName}
+          regex: ^feature/(.*?)
+          source-branches: ['master','legacy']
+          increment: none
+
+        release:
+          # disable default release branch
+          regex: ignore
+
+      ignore:
+        sha: []
+
+steps:
+- checkout: ${{coalesce(parameters.cfg.repo, 'self')}}
+  fetchDepth: 0
+
+- task: gitversion/setup@0
+  displayName: 'Install GitTools'
+  inputs:
+    versionSpec: '5.x'
+
+- pwsh: |
+    $filePath = "${{coalesce(parameters.cfg.configFilePath, 'GitVersion.yml')}}"
+    $textContent = @"
+    assembly-versioning-scheme: MajorMinorPatch
+    assembly-file-versioning-scheme: MajorMinorPatch
+    mode: ContinuousDelivery
+    tag-prefix: '[vV]'
+    continuous-delivery-fallback-tag: ci
+    major-version-bump-message: '\+semver:\s?(breaking|major)'
+    minor-version-bump-message: '\+semver:\s?(feature|minor)'
+    patch-version-bump-message: '\+semver:\s?(fix|patch)'
+    no-bump-message: '\+semver:\s?(none|skip)'
+    legacy-semver-padding: 4
+    build-metadata-padding: 4
+    commits-since-version-source-padding: 4
+    tag-pre-release-weight: 60000
+    commit-message-incrementing: Enabled
+    branches:
+      develop:
+        mode: ContinuousDeployment
+        tag: alpha
+        increment: Minor
+        prevent-increment-of-merged-branch-version: false
+        track-merge-target: true
+        regex: ^dev(elop)?(ment)?$
+        source-branches: []
+        tracks-release-branches: true
+        is-release-branch: false
+        is-mainline: false
+        pre-release-weight: 0
+      main:
+        mode: ContinuousDelivery
+        tag: ''
+        increment: Patch
+        prevent-increment-of-merged-branch-version: true
+        track-merge-target: false
+        regex: ^master$|^main$
+        source-branches:
+        - develop
+        - release
+        tracks-release-branches: false
+        is-release-branch: false
+        is-mainline: true
+        pre-release-weight: 55000
+      release:
+        mode: ContinuousDelivery
+        tag: beta
+        increment: None
+        prevent-increment-of-merged-branch-version: true
+        track-merge-target: false
+        regex: ^releases?[/-]
+        source-branches:
+        - develop
+        - main
+        - support
+        - release
+        tracks-release-branches: false
+        is-release-branch: true
+        is-mainline: false
+        pre-release-weight: 30000
+      feature:
+        mode: ContinuousDelivery
+        tag: '{BranchName}'
+        increment: Inherit
+        regex: ^features?[/-]
+        source-branches:
+        - develop
+        - main
+        - release
+        - feature
+        - support
+        - hotfix
+        pre-release-weight: 30000
+      pull-request:
+        mode: ContinuousDelivery
+        tag: PullRequest
+        increment: Inherit
+        tag-number-pattern: '[/-](?<number>\d+)'
+        regex: ^(pull|pull\-requests|pr)[/-]
+        source-branches:
+        - develop
+        - main
+        - release
+        - feature
+        - support
+        - hotfix
+        pre-release-weight: 30000
+      hotfix:
+        mode: ContinuousDelivery
+        tag: beta
+        increment: Patch
+        prevent-increment-of-merged-branch-version: false
+        track-merge-target: false
+        regex: ^hotfix(es)?[/-]
+        source-branches:
+        - release
+        - main
+        - support
+        - hotfix
+        tracks-release-branches: false
+        is-release-branch: false
+        is-mainline: false
+        pre-release-weight: 30000
+      support:
+        mode: ContinuousDelivery
+        tag: ''
+        increment: Patch
+        prevent-increment-of-merged-branch-version: true
+        track-merge-target: false
+        regex: ^support[/-]
+        source-branches:
+        - main
+        tracks-release-branches: false
+        is-release-branch: false
+        is-mainline: true
+        pre-release-weight: 55000
+    ignore:
+      sha: []
+    increment: Inherit
+    commit-date-format: yyyy-MM-dd
+    merge-message-formats: {}
+    update-build-number: true
+
+    "@
+
+    if (-not (Test-Path -Path $filePath)) {
+        $textContent | Set-Content -Path $filePath
+        Write-Host "default config file created"
+    } else {
+        Write-Host "$filePath already exists"
+    }
+    Get-Content -Path $filePath
+  displayName: Check GitVersion Config
+
+- task: gitversion/execute@0
+  inputs:
+    useConfigFile: true
+    configFilePath: ${{coalesce(parameters.cfg.configFilePath, 'GitVersion.yml')}}
+  displayName: 'Calculate SemVer'
+  name: SemVer

@@ -1,0 +1,17 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+jobs:
+- template: ./qa-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    testSteps:
+    - template: ../steps/task-script.yaml
+      parameters:
+        cfg: ${{ parameters.cfg }}
+        ctx: ${{ parameters.ctx }}

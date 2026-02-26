@@ -1,0 +1,136 @@
+# doc: ../../docs/schema/obj-build-npm.md
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+jobs:
+- template: ./build-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    prepareSteps:
+    - task: NodeTool@0
+      displayName: 'Install Node.js'
+      inputs:
+        ${{ if parameters.cfg.ver }}:
+          versionSpec: '${{parameters.cfg.ver}}'
+        ${{ else }}:
+          versionSpec: '12.x'
+        checkLatest: true
+    - ${{ if parameters.cfg.npmrc }}:
+      - template: ../steps/npmrc.yaml
+        parameters:
+          cfg: ${{ parameters.cfg }}
+          ctx: ${{ parameters.ctx }}
+    buildSteps:
+    - ${{ if eq(parameters.cfg.eventLib, 'true' )}}:
+      - task: Npm@1
+        displayName: 'Install node-gif-event-lib'
+        inputs:
+          command: 'custom'
+          customCommand: install dx-node-gif-event-lib --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/w00028-pwc-us-digital-dx-npm/
+          customEndpoint: dx-node-event-lib
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+
+    - bash: |
+          APPKIT_VERSION='';
+          re="\"(@appkit.*|appkit.*)\": \"([^\"]*)\"";
+          cat ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}/package.json
+          while read -r l; do
+            if [[ $l =~ $re ]]; then
+              echo ${BASH_REMATCH[1]}
+              APPKIT_VERSION="$APPKIT_VERSION ${BASH_REMATCH[1]} "
+            fi
+          done < ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}/package.json;
+          echo $APPKIT_VERSION
+          echo "##vso[task.setvariable variable=APPKIT_VERSION]$APPKIT_VERSION"
+      condition: ne(succeeded(), '${{ parameters.cfg.appKit }}')
+      displayName: 'Get Appkit version'
+    - ${{ if eq(parameters.cfg.appKit, 'Angular' )}}:
+      - task: Npm@1
+        displayName: 'Install appkitAngular'
+        inputs:
+          command: 'custom'
+          customCommand: install appkit-angular --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/g00020-pwc-gx-digital-appkit-npm/
+          customEndpoint: npm-appkit-artifacts
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+
+    - ${{ if eq(parameters.cfg.appKit, 'Angular4' )}}:
+      - task: Npm@1
+        displayName: 'Install appkitAngular4'
+        inputs:
+          command: 'custom'
+          customCommand: install @appkit4/angular-components @appkit4/angular-text-editor @appkit4/styles  --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/g00020-pwc-gx-digital-appkit-npm/
+          customEndpoint: npm-appkit-artifacts
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+
+    - ${{ if eq(parameters.cfg.appKit, 'React' ) }}:
+      - task: Npm@1
+        displayName: 'Install appKitReact'
+        inputs:
+          command: 'custom'
+          customCommand: install appkit-react --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/g00020-pwc-gx-digital-appkit-npm/
+          customEndpoint: npm-appkit-artifacts
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+
+    - ${{ if eq(parameters.cfg.appKit, 'React4' )}}:
+      - task: Npm@1
+        displayName: 'Install appkitReact4'
+        inputs:
+          command: 'custom'
+          customCommand: install @appkit4/react-components @appkit4/styles --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/g00020-pwc-gx-digital-appkit-npm/
+          customEndpoint: npm-appkit-artifacts
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+    - task: Npm@1
+      displayName: 'Install appkit'
+      condition: and(succeeded(), ne(variables.APPKIT_VERSION,''))
+      inputs:
+        command: 'custom'
+        customCommand: install $(APPKIT_VERSION) --save --registry=https://artifacts-west.pwc.com/artifactory/api/npm/g00020-pwc-gx-digital-appkit-npm/
+        customEndpoint: npm-appkit-artifacts
+        workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+    - ${{ each v in parameters.cfg.commandsWithEndpoints }}:
+      - task: Npm@1
+        displayName: "npm ${{ coalesce(v.display,v.npm) }}"
+        continueOnError: "${{ coalesce(v.continueOnError, 'false') }}"
+        ${{if v.env }}:
+          env: ${{ v.env }}
+        inputs:
+          command: 'custom'
+          customCommand: '${{v.npm}}'
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+          ${{if v.endpoint }}:
+            customEndpoint: '${{v.endpoint}}'
+    - ${{ if ne(coalesce(parameters.cfg.skipTest, false),true)}}:
+      - task: Npm@1
+        displayName: 'Unit test'
+        inputs:
+          command: 'custom'
+          customCommand: run test
+          workingDir: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+    publishSteps:
+    - ${{if eq(lower(coalesce(parameters.cfg.cleanUpNodeModules,'true')),'true') }}:
+      - powershell: |
+         if($IsLinux) {
+           rm -rf ./node_modules
+         } else {
+            Remove-Item -Path .\node_modules -Recurse
+         }
+        displayName: cleanup node_modules
+        workingDirectory: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+    - ${{if eq(lower(coalesce(parameters.cfg.cleanUpAngular,'true')),'true') }}:
+      - powershell: |
+          if($IsLinux) {
+            rm -rf ./.angular
+          } else {
+             Remove-Item -Path .\.angular -Recurse
+          }
+        displayName: cleanup .angular
+        workingDirectory: ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}
+    - template: ../steps/publish-npm.yaml
+      parameters:
+        cfg: ${{parameters.cfg}}
+        ctx: ${{parameters.ctx}}

@@ -1,0 +1,98 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: prepareSteps
+  type: object
+  default: null
+- name: deploySteps
+  type: object
+  default: null
+- name: vars
+  type: object
+  default: null
+- name: download
+  type: boolean
+  default: false
+- name: checkout
+  type: string
+  default: ''
+
+
+jobs:
+- ${{ if parameters.ctx.environment }}:
+  - deployment: ${{ parameters.ctx.name }}
+    ${{ if parameters.ctx.approval }}:
+      dependsOn: ${{ parameters.ctx.stage }}Approval
+      condition: succeeded('${{ parameters.ctx.stage }}Approval')
+    ${{ if parameters.ctx.environment.name }}:
+      environment:
+        ${{ each v in parameters.ctx.environment }}:
+          ${{ v.key }}: ${{ v.value }}
+        ${{ if parameters.cfg.tags }}:
+          tags: ${{ parameters.cfg.tags }}
+    ${{ else }}:
+      environment: ${{ parameters.ctx.environment }}
+    ${{ if parameters.cfg.pool }}:
+      pool: '${{ parameters.cfg.pool }}'
+    ${{ if or(parameters.vars ,parameters.cfg.variables)}}:
+      variables:
+      - ${{ each v in parameters.vars }}:
+        - ${{ v }}
+      - ${{ each v in parameters.cfg.variables }}:
+        - ${{ v }}
+    displayName: ${{ parameters.ctx.display }}
+    ${{ if parameters.cfg.jobOptions }}:
+      ${{ each v in parameters.cfg.jobOptions }}:
+        ${{ v.key }}: ${{ v.value }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - template: ../steps/deploy-base-steps.yaml
+            parameters:
+              cfg: ${{parameters.cfg}}
+              ctx: ${{parameters.ctx}}
+              checkout: ${{parameters.checkout}}
+              download: ${{parameters.download}}
+              prepareSteps: ${{parameters.prepareSteps}}
+              deploySteps: ${{parameters.deploySteps}}
+- ${{ else }}:
+  - ${{ if parameters.cfg.createRelease }}:
+    - template: versioning-tag-release.yaml
+      parameters:
+        cfg: ${{parameters.cfg}}
+        ctx: ${{parameters.ctx}}
+  - job: ${{ parameters.ctx.name }}
+    ${{ if parameters.ctx.approval }}:
+      dependsOn: ${{ parameters.ctx.stage }}Approval
+      condition: succeeded('${{ parameters.ctx.stage }}Approval')
+    ${{ if parameters.cfg.dependsOn }}:
+      dependsOn: ${{ parameters.cfg.dependsOn }}
+    ${{ if parameters.cfg.pool }}:
+      pool: '${{ parameters.cfg.pool }}'
+    ${{ if or(parameters.vars ,parameters.cfg.variables)}}:
+      variables:
+      - ${{ each v in parameters.vars }}:
+        - ${{ v }}
+      - ${{ each v in parameters.cfg.variables }}:
+        - ${{ v }}
+    displayName: Deploy ${{ parameters.ctx.name }}
+    ${{ if parameters.cfg.jobOptions }}:
+      ${{ each v in parameters.cfg.jobOptions }}:
+        ${{ v.key }}: ${{ v.value }}
+    steps:
+    - template: ../steps/deploy-base-steps.yaml
+      parameters:
+        cfg: ${{parameters.cfg}}
+        ctx: ${{parameters.ctx}}
+        checkout: ${{parameters.checkout}}
+        download: ${{parameters.download}}
+        prepareSteps: ${{parameters.prepareSteps}}
+        deploySteps: ${{parameters.deploySteps}}
+
+############### CUSTOMIZED JOBS ##########################
+- ${{ each v in parameters.cfg.customJobs }}:
+  - ${{ v }}

@@ -1,0 +1,73 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    jobOptions:
+      pool:
+        vmImage: ubuntu-latest
+    download: false
+    prepareSteps:
+    - checkout: none
+    - ${{ if parameters.cfg.debug }}:
+      - bash: |
+          echo '
+          cfg: ${{ convertToJson(parameters.cfg) }},
+          ctx: ${{ convertToJson(parameters.ctx) }}
+          '
+    - ${{ each v in parameters.ctx.containers }}:
+      - task: Docker@2
+        inputs:
+          containerRegistry: '${{ v.registry }}'
+          command: 'login'
+        displayName: docker login ${{ v.registry }}
+      - bash: |
+          docker pull ${{ v.registry }}/${{ v.image }}:${{ v.ver }}
+        displayName: pull image ${{ v.image }}
+    scanSteps:
+    # twistcli is not working now
+    #
+    # - task: ArtifactoryGenericDownload@3
+    #   displayName: Download twistcli
+    #   inputs:
+    #     connection: 'w00014-pwc-us-digital-devops-generic'
+    #     specSource: 'taskConfiguration'
+    #     fileSpec: |
+    #       {
+    #         "files": [
+    #           {
+    #             "pattern": "w00014-pwc-us-digital-devops-generic/prisma/twistcli",
+    #             "target": "./twistcli"
+    #           }
+    #         ]
+    #       }
+    #     failNoOp: true
+    - task: Docker@2
+      inputs:
+        containerRegistry: w00014-pwc-us-digital-devops-docker.artifacts-west.pwc.com
+        command: 'login'
+      displayName: jf login
+    - ${{ each v in parameters.ctx.containers }}:
+      # - task: Bash@3
+      #   displayName: 'Twistlock Scan ${{ v.registry }}/${{ v.image }}:${{ v.ver }}'
+      #   inputs:
+      #     targetType: 'inline'
+      #     script: |
+      #       chmod +x ./prisma/twistcli
+      #       ./prisma/twistcli images scan '${{ v.registry }}/${{ v.image }}:${{ v.ver }}' \
+      #          --project digital-mgmt-ADVDGLDODWUSAKSPROD005 -u svc_p_t_team_digitalteam_p_scans  --details \
+      #          --address https://twistlock-prisma.pwc.com -p 'D5h6&G5d@%48P&Qp'
+      - bash: |
+          echo "=== Due to account issues with Twistlock, we are temporarily using Trivy to perform image scans."
+          docker run -v /var/run/docker.sock:/var/run/docker.sock \
+            w00014-pwc-us-digital-devops-docker.artifacts-west.pwc.com/aquasec/trivy:0.58.1 \
+            image '${{ v.registry }}/${{ v.image }}:${{ v.ver }}'
+        displayName: trivy scan

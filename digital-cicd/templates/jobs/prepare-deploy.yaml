@@ -1,0 +1,27 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: name
+  type: string
+  default: Dev
+
+jobs:
+# - job:
+#   ${{ if parameters.cfg.approval }}:
+#     dependsOn: ${{ parameters.name }}Approval
+#     condition: succeeded('${{ parameters.name }}Approval')
+#   steps:
+#   - task: tagBuildOrRelease@0
+#     inputs:
+#       type: 'Build'
+#       tags: |
+#         ${{ parameters.name }}:Deploy=started
+
+- template: tag-deployment.yaml
+  parameters:
+    cfg: ${{ parameters.cfg.jobs }}
+    ctx: ${{ parameters.ctx }}
+    name: ${{ parameters.name }}

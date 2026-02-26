@@ -1,0 +1,355 @@
+parameters:
+- name: configBranch
+  type: string
+  default: 2.0-cicd
+- name: workingDirectory
+  type: string
+  default: .
+- name: sanitized
+  type: string
+- name: appVersion
+  type: string
+  default: 1.0.0
+- name: appArtifactDirectory
+  type: string
+  default: dist
+- name: artifactoryGenericRepo
+  type: string
+  default: w00014-pwc-us-digital-devops-generic
+- name: artifactoryGenericRepoPath
+  type: string
+  default: concoursecore
+- name: genericArtifactoryServiceConnection
+  type: string
+  default: default-jfrog-rw-svc
+- name: projectName
+  type: string
+  default: ConcourseCore
+- name: agentPool
+  values:
+  - InfraDevOpsAgents
+  - dds-concourse-ubuntu2004-01
+  default: dds-concourse-ubuntu2004-01
+- name: cdStages
+  type: object
+  default:
+  - name: sanitized
+    environment: us-dev
+    param_name: dev
+    dependsOn:
+    - Build
+  - name: sanitized
+    environment: us-qa
+    param_name: qa
+    dependsOn:
+    - Build
+  - name: qa_sanity
+    environment: us-qa
+    param_name: qa
+    dependsOn:
+    - sanitized
+  - name: sanitized
+    environment: us-perf
+    param_name: perf
+    dependsOn:
+    - Build
+  - name: sanitized
+    environment: us-int
+    param_name: int
+    dependsOn:
+    - Build
+trigger: none
+resources:
+  repositories:
+  - repository: library
+    type: git
+    name: InfraDevOps/digital-cicd
+    ref: refs/heads/develop
+  - repository: ConcourseCore
+    type: git
+    name: ConcourseCore/ConcourseCore
+    ref: refs/heads/develop
+  - repository: microserviceConfig
+    type: github
+    endpoint: concourse-core-automation_pwcit
+    name: pwc-us-adv-tech-enablement/tech-enablement
+    ref: refs/heads/main
+extends:
+  template: pipelines/pipeline-v3.0.yaml@library
+  parameters:
+    cdStages: ${{ parameters.cdStages }}
+    variables:
+    - group: sanitized
+    - group: ConcourseCore
+    - group: DevOps - Common
+    - group: Concoursecicd
+    - group: ConcourseNotifcations
+    - name: CommitMessage
+      value: $(Build.SourceVersionMessage)
+    - name: sanitized
+      value: sanitized
+    - name: sanitized
+      value: sanitized
+    - name: sanitized
+      value: sanitized
+    - name: APP_DIR
+      value: ''
+    - name: DEPLOYMENT_TYPE
+      value: kubernetes
+    - name: SERVICE_NAME
+      value: sanitized
+    - name: DOCKER_CUSTOM_ARGUMENT
+      value: sanitized
+    - name: K8S_DEPLOYMENT_YAML
+      value: ConcourseCore/k8s/$(SERVICE_NAME)/deployment.yaml
+    - name: K8S_SERVICE_YAML
+      value: ConcourseCore/k8s/microservice-template/service.yaml
+    - name: K8S_CONFIGMAP_YAML
+      value: ConcourseCore/k8s/$(SERVICE_NAME)/configs/$(ENVIRONMENT)/$(SERVICE_NAME).configmap.yaml
+    - name: NPMOPTIONS
+      value: --use-openssl-ca --max_old_space_size=8192
+    - name: configBranch
+      value: ${{ parameters.configBranch }}
+    - name: ASB_QUEUE_SUFFIX
+      value: ' '
+    - name: RELEASE_LABEL
+      value: $(Build.SourceBranchName)
+    - name: EVENTHUB_CONSUMER_GROUP
+      value: $Default
+    version:
+      custom:
+        full: ${{ parameters.appVersion }}
+        short: ${{ variables['Build.SourceBranchName'] }}
+    app:
+      id: sanitized
+      rootPath: ${{coalesce(parameters.workingDirectory,'.')}}
+    deploy:
+      ${{ each stage in parameters.cdStages }}:
+        ${{ stage.name }}:
+          ${{ if in(stage.name, 'us_stage', 'us_prod', 'emea_stage', 'emea_prod', 'apac_stage', 'apac_prod')}}:
+            conditions: contains(variables['BUILD_SOURCE_BRANCH'],'heads/release/')
+          environment: ${{ stage.environment }}
+          jobs:
+          - type: k8s
+            variables:
+            - group: ${{ stage.environment }}
+            - name: K8S_NAMESPACE_MESH
+              value: co-mesh
+            - name: CONFIGMAP_NAME
+              ${{ if in(stage.name, 'us_stage', 'emea_stage', 'apac_stage', 'us_prod', 'emea_prod', 'apac_prod')}}:
+                value: sanitized
+              ${{ else }}:
+                value: sanitized
+            - name: DEPLOYMENT_NAME
+              ${{ if in(stage.name, 'us_stage', 'emea_stage', 'apac_stage', 'us_prod', 'emea_prod', 'apac_prod')}}:
+                value: sanitized
+              ${{ else }}:
+                value: sanitized
+            - name: sanitized
+              ${{ if in(stage.name, 'us_stage', 'emea_stage', 'apac_stage', 'us_prod', 'emea_prod', 'apac_prod')}}:
+                value: sanitized
+              ${{ else }}:
+                value: sanitized
+            - name: CONFIGMAP_YAML_NAME
+              ${{ if in(stage.name, 'us_stage', 'emea_stage', 'apac_stage', 'us_prod', 'emea_prod', 'apac_prod')}}:
+                value: sanitized
+              ${{ else }}:
+                value: sanitized
+            - name: REPLICAS
+              value: 1
+            deployName: $(SERVICE_NAME)
+            serviceConnection: ${{ stage.environment }}-kubernetes-svc
+            environment: ${{ stage.environment }}
+            namespace: $(K8S_NAMESPACE_MESH)
+            name: ${{ stage.param_name }}
+            pool:
+              name: ${{ parameters.agentPool }}
+            jobOptions:
+              timeoutInMinutes: '480'
+              workspace:
+                clean: all
+            beforeDeploy:
+            - bash: 'echo "Build.SourceBranch: $(Build.SourceBranch)"
+
+                '
+              displayName: Echo Data
+            - checkout: ConcourseCore
+              path: s/ConcourseCore
+              fetchDepth: 0
+              clean: true
+              displayName: Pull ConcourseCore Repo
+            - script: "pwd\ngit config --global user.email \"you@example.com\"\ngit\
+                \ config --global user.name \"Azure DevOps\"\ngit pull\ngit fetch\
+                \ --all\n\nif [[ \"$(Build.SourceBranch)\" =~ refs/heads/release/*\
+                \ ]]; then\n  git checkout \"$(Build.SourceBranch)\"\nelse\n  git\
+                \ checkout develop\nfi\necho \"current branch: $(git branch --show-current)\"\
+                \n"
+              workingDirectory: $(Pipeline.Workspace)/s/ConcourseCore
+              displayName: Checkout ConcourseCore Branch - $(Build.SourceBranch)
+            - checkout: microserviceConfig
+              path: s/microserviceConfig
+              fetchDepth: 0
+              clean: true
+              displayName: Pull tech-enablement Repo
+            - script: "releasePattern=\".*release\\/\"\nfeaturePattern=\".*feature\\\
+                /\"\ndevelopPattern=\".*develop$\"\nmasterPattern=\".*main$\"\npwd;\
+                \ git config --global user.email \"you@example.com\"; git config --global\
+                \ user.name \"Azure DevOps\"; git pull; git fetch --all\nif [[ \"\
+                $(Build.SourceBranch)\" =~ $developPattern ]]\n  then\n    git checkout\
+                \ develop\n  elif [[ \"$(Build.SourceBranch)\" =~ $featurePattern\
+                \ ]]; then\n    git checkout \"feature/$(Build.SourceBranchName)\"\
+                \n  elif [[ \"$(Build.SourceBranch)\" =~ $releasePattern ]]; then\n\
+                \    git checkout \"release/$(Build.SourceBranchName)\"\n  elif [[\
+                \ \"$(Build.SourceBranch)\" =~ $masterPattern ]]; then\n    git checkout\
+                \ main\n  else\n    git checkout main\nfi\npwd; git branch -a\n"
+              workingDirectory: $(Pipeline.Workspace)/s/microserviceConfig
+              displayName: Checkout tech-enablement Branch - $(Build.SourceBranch)
+            - bash: 'echo "##vso[task.setvariable variable=APP_VERSION]${{ parameters.appVersion
+                }}"
+
+                '
+              displayName: Set APP Version
+            - bash: 'echo APP_VERSION $(APP_VERSION)
+
+                echo $(ver) $(K8S_NAMESPACE) $(K8S_NAMESPACE_MESH)
+
+                '
+              displayName: Display Version Number
+            - bash: sanitized
+              displayName: Set Replicas to 2 for Core Services
+            - task: sanitized
+              inputs:
+                targetFiles: '$(K8S_DEPLOYMENT_YAML)
+
+                  $(K8S_CONFIGMAP_YAML)
+
+                  $(K8S_SERVICE_YAML)
+
+                  $(Pipeline.Workspace)/s/microserviceConfig/config/docker.k8.yml
+
+                  '
+                encoding: auto
+                tokenPattern: sanitized
+                tokenPrefix: sanitized
+                tokenSuffix: sanitized
+                writeBOM: true
+                actionOnMissing: warn
+                keepToken: sanitized
+                actionOnNoFiles: continue
+                enableTransforms: false
+                enableRecursion: false
+                useLegacyPattern: false
+                enableTelemetry: true
+                defaultValue: ' '
+                verbosity: detailed
+              displayName: sanitized
+            - bash: "mkdir -p ./k8s/${{ stage.environment }}\necho \"\n---\n\napiVersion:\
+                \ v1\nkind: ConfigMap\nmetadata:\n  name: $(CONFIGMAP_YAML_NAME)\n\
+                \  namespace: $(K8S_NAMESPACE_MESH)\ndata:\n  config.yaml: |\n\" >>\
+                \ $(K8S_CONFIGMAP_YAML)\n\ncat $(Pipeline.Workspace)/s/microserviceConfig/config/docker.k8.yml\
+                \ | sed  -e 's/^/    /' >> $(K8S_CONFIGMAP_YAML)\n\ncp ConcourseCore/k8s/microservice-template/service.yaml\
+                \ ./k8s/${{ stage.environment }}\ncp $(K8S_DEPLOYMENT_YAML) ./k8s/${{\
+                \ stage.environment }}\ncp $(K8S_CONFIGMAP_YAML) ./k8s/${{ stage.environment\
+                \ }}\n"
+              displayName: Copy Manifests
+            - bash: 'cat $(K8S_DEPLOYMENT_YAML)
+
+                '
+              displayName: Display Deployment Manifest
+            - bash: 'cat $(K8S_CONFIGMAP_YAML)
+
+                '
+              displayName: Display ConfigMap Manifest
+            - task: CopyFiles@2
+              enabled: false
+              inputs:
+                Contents: '$(K8S_DEPLOYMENT_YAML)
+
+                  $(K8S_CONFIGMAP_YAML)
+
+                  ConcourseCore/k8s/microservice-template/service.yaml
+
+                  '
+                TargetFolder: $(Build.ArtifactStagingDirectory)/pipeline_files/
+                CleanTargetFolder: true
+              displayName: Copy Manifests for publishing
+            - task: PublishBuildArtifacts@1
+              enabled: false
+              inputs:
+                PathtoPublish: $(Build.ArtifactStagingDirectory)/pipeline_files/
+                ArtifactName: drop
+                publishLocation: Container
+              displayName: Publish Manifests
+            postDeploy:
+            - bash: sanitized
+              displayName: Push WayDev Metadata Success
+              condition: always()
+            - task: DeleteFiles@1
+              inputs:
+                SourceFolder: $(Build.ArtifactStagingDirectory)/pipeline_files/
+                Contents: '*'
+              condition: always()
+              displayName: Cleanup Staging Dir
+            - task: Kubernetes@1
+              inputs:
+                connectionType: Kubernetes Service Connection
+                kubernetesServiceEndpoint: ${{ stage.environment }}-kubernetes-svc
+                namespace: $(K8S_NAMESPACE_MESH)
+                command: describe
+                arguments: po -l tags.datadoghq.com/service=$(SERVICE_NAME)
+              condition: failed()
+              displayName: Describe Kube Error
+    pr:
+      enforceUnitTest: false
+      targetBranches:
+      - develop
+      stages:
+      - Build
+    scan:
+      jobOptions:
+        timeoutInMinutes: 240
+        workspace:
+          clean: all
+      licenseScan:
+        pool: ${{ parameters.agentPool }}
+        variables:
+        - group: sanitized
+        - group: ConcourseCore
+        - name: sanitized
+          value: sanitized
+        language: nodejs
+        nodeVersion: 22.x
+        autoDownload: true
+        endpoint: default-blackduck-svc
+        project: US-PwC-US-Digital_Portfolio-Concourse-api-srv
+        version: $(APP_VERSION_BD)
+        conditions: "or\n(\n  contains(variables['BUILD_SOURCE_BRANCH'],'heads/main'),\n\
+          \  contains(variables['BUILD_SOURCE_BRANCH'],'heads/feature/')\n)\n"
+        custom:
+        - task: SynopsysDetectTask@8
+          continueOnError: true
+          inputs:
+            BlackDuckService: default-blackduck-svc
+            DetectFolder: $(Build.SourcesDirectory)
+            DetectArguments: sanitized
+            DetectVersion: latest
+          displayName: sanitized
+        beforeDownload:
+        - script: 'sudo find coverage -type d -prune | xargs chown -fR AzDevOps:AzDevOps
+
+            sudo find dist -type d -prune | xargs chown -fR AzDevOps:AzDevOps
+
+            sudo find reporters -type d -prune | xargs chown -fR AzDevOps:AzDevOps
+
+            '
+          continueOnError: true
+          displayName: Making files accesibles
+        beforeScan:
+        - script: sanitized
+          displayName: Set NPM BIN PATH into a var
+        - script: "releasePattern=\".*release\\/\"\ndevelopPattern=\".*main$\"\nif\
+            \ [[ \"$(Build.SourceBranch)\" =~ $releasePattern ]]\n  then\n    echo\
+            \ \"##vso[task.setvariable variable=APP_VERSION_BD]release-head\"\nfi\n\
+            if [[ \"$(Build.SourceBranch)\" =~ $developPattern ]]\n  then\n    echo\
+            \ \"##vso[task.setvariable variable=APP_VERSION_BD]develop-head\"\nfi\n"
+          displayName: Set app version for Black Duck

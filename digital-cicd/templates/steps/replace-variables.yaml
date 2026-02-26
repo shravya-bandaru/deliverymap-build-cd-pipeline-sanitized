@@ -1,0 +1,15 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+
+steps:
+- task: colinsalmcorner.colinsalmcorner-buildtasks.replace-tokens-task.ReplaceTokens@1
+  inputs:
+    sourcePath: ${{ coalesce(parameters.cfg.replaceVariables.replaceFilePath,'.')}}
+    filePattern: ${{ coalesce(parameters.cfg.replaceVariables.filePattern,'*.+(html|js|ts)')}}
+    tokenRegex: ${{ coalesce(parameters.cfg.replaceVariables.tokenRegex,'__(\w+)__')}}
+    secretTokens: '${{ parameters.cfg.replaceVariables.variables}}'

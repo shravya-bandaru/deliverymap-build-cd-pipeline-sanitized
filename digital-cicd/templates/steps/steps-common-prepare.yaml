@@ -1,0 +1,79 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: download
+  type: boolean
+  default: false
+- name: targetPath
+  type: string
+  default: ''
+- name: checkout
+  type: string
+  default: ''
+
+steps:
+####################### INIT VAULT ############################
+- ${{ if parameters.cfg.vault }}:
+  - template: ../steps/task-vault.yaml
+    parameters:
+      cfg: ${{ parameters.cfg.vault }}
+
+####################### BEFORE DOWNLOAD ##########################
+- ${{ each v in parameters.cfg.beforeDownload }}:
+  - ${{ v }}
+
+#################### DOWNLOAD FILES ##############################
+## Download Code
+- ${{ if parameters.cfg.downloadCode }}:
+  - ${{each repo in parameters.cfg.downloadCode}}:
+    - checkout: ${{coalesce(repo.ref,repo.name)}}
+      ${{if coalesce(repo.path,repo.name)}}:
+        path: ${{coalesce(repo.path,format('s/{0}',repo.name))}}
+    - ${{ if parameters.cfg.debug}}:
+      - powershell: |
+          if($IsLinux){ find $(Pipeline.Workspace)|grep '.git/HEAD' }else{ tree /F /a $(Pipeline.Workspace) }
+        displayName: debug
+- ${{ else }}:
+  - ${{ if coalesce(parameters.cfg.checkout,parameters.checkout) }}:
+    - checkout: ${{ coalesce(parameters.cfg.checkout,parameters.checkout) }}
+
+## Download secure file in library
+- ${{ if parameters.cfg.secureFile }}:
+  - task: DownloadSecureFile@1
+    name: Secret${{parameters.ctx.stage}}
+    displayName: Download secret
+    inputs:
+      secureFile: '${{parameters.cfg.secureFile.name}}'
+  - ${{ if parameters.cfg.secureFile.saveAs }}:
+    - powershell: |
+        Copy-Item -Path "$(Secret${{parameters.ctx.stage}}.secureFilePath)" -Destination "${{parameters.cfg.secureFile.saveAs }}"
+      displayName: saveAs
+
+## Download Jfrog generic artifacts
+- ${{if parameters.cfg.downloadJfrog }}:
+  - template: download-jfrog.yaml
+    parameters:
+      cfg: ${{ parameters.cfg.downloadJfrog }}
+      ctx: ${{parameters.ctx}}
+
+
+# Download ADO pipeline artifacts
+- ${{if parameters.cfg.downloadPipelineArtifacts }}:
+  - template: steps-download-pipeline-artifact.yaml
+    parameters:
+      cfg: ${{parameters.cfg.downloadPipelineArtifacts}}
+      ctx: ${{parameters.ctx}}
+- ${{else}}:
+  # Download ADO pipeline artifacts(Depreciated)
+  - ${{ if parameters.download }}:
+    - ${{if eq(lower(coalesce(parameters.cfg.downloadArtifact,'true')),'true') }}:
+      - template: steps-download-pipeline-artifact.yaml
+        parameters:
+          cfg: ${{parameters.cfg}}
+          ctx: ${{parameters.ctx}}
+####################### AFTER DOWNLOAD ###########################
+- ${{ each v in parameters.cfg.afterDownload }}:
+  - ${{ v }}

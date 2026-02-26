@@ -1,0 +1,72 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: prepareSteps
+  type: object
+  default: null
+- name: testSteps
+  type: object
+- name: publishSteps
+  type: object
+  default: null
+- name: vars
+  type: object
+  default: null
+
+jobs:
+- job: ${{parameters.ctx.name}}
+  timeoutInMinutes: ${{ coalesce(parameters.cfg.timeLimitInMinutes,'1440' )}}
+  displayName: ${{parameters.ctx.display}}
+  ${{ if parameters.cfg.jobOptions }}:
+    ${{ each v in parameters.cfg.jobOptions }}:
+      ${{ v.key }}: ${{ v.value }}
+  ${{ if parameters.cfg.pool }}:
+    pool: '${{ parameters.cfg.pool }}'
+  ${{ if parameters.cfg.dependsOn }}:
+    dependsOn: ${{ parameters.cfg.dependsOn }}
+  ${{ else }}:
+    dependsOn:
+    - ${{ each v in parameters.ctx.dependency.jobs }}:
+      - ${{replace(coalesce(v.name,v.type),'-','_')}}_deploy
+  ${{ if parameters.vars }}:
+    variables: ${{ parameters.vars }}
+  steps:
+  - ${{ if parameters.cfg.mock }}:
+    - bash: |
+        echo '
+        "cfg": ${{convertToJson(parameters.cfg)}},
+        "ctx": ${{convertToJson(parameters.ctx)}}
+        '
+      displayName: test(mocking)
+  - ${{ else }}:
+    ###################### PREPARE ENVIRONMENTS ######################
+    - ${{ each v in parameters.prepareSteps }}:
+      - ${{ v }}
+
+    ####################### TEST  ####################################
+    - ${{ each v in parameters.cfg.beforeTest }}:
+      - ${{ v }}
+
+    - ${{ if parameters.cfg.customTest }}:
+      - ${{ each v in parameters.cfg.customTest }}:
+        - ${{ v }}
+    - ${{ else }}:
+      - ${{ each v in parameters.testSteps }}:
+        - ${{ v }}
+
+    - ${{ each v in parameters.cfg.postTest }}:
+      - ${{ v }}
+
+    ####################### PUBLISH ##################################
+    - ${{ each v in parameters.cfg.beforePublish }}:
+      - ${{ v }}
+
+    - ${{ if parameters.cfg.customPublish }}:
+      - ${{ each v in parameters.cfg.customPublish }}:
+        - ${{ v }}
+    - ${{ else }}:
+      - ${{ each v in parameters.publishSteps }}:
+        - ${{ v }}

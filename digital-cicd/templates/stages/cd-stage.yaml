@@ -1,0 +1,54 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: spec # name, condition,variables,dependsOn
+  type: object
+- name: tests
+  type: object
+  default: null
+
+stages:
+- stage: ${{ parameters.spec.name }}
+  displayName: "${{ parameters.spec.name }} ${{ parameters.ctx.release}}"
+  ${{ if parameters.spec.condition }}:
+    condition: |
+      and(
+        ${{ join(',',parameters.spec.baseCondition) }},
+        ${{ parameters.spec.condition }}
+      )
+  ${{ else }}:
+    condition: |
+      and(
+        ${{ join(',',parameters.spec.baseCondition) }},
+        True
+      )
+  ${{ if parameters.spec.variables }}:
+    variables: ${{ parameters.spec.variables }}
+  ${{ if parameters.spec.dependsOn }}:
+    dependsOn: ${{ parameters.spec.dependsOn }}
+  jobs:
+  - template: ${{ coalesce(parameters.cfg.custom,'../jobs/deploy-stage.yaml') }}
+    parameters:
+      cfg: ${{ parameters.cfg }}
+      ctx: ${{ parameters.ctx }}
+      name: ${{ parameters.spec.name }}
+
+  - ${{ each t in parameters.tests }}:
+    - template: ../jobs/qa-${{t.method}}.yaml
+      parameters:
+        cfg: ${{ t }}
+        ctx:
+          name: ${{t.name}}
+          display: ${{t.name}}
+          ver: ${{parameters.ctx.ver}}
+          dependency: ${{ parameters.cfg }}
+          deployName: ${{ parameters.spec.name }}
+
+  - template: ../jobs/prepare-deploy.yaml
+    parameters:
+      cfg: ${{ parameters.cfg }}
+      name: ${{ parameters.spec.name }}
+      ctx: ${{ parameters.tests }}

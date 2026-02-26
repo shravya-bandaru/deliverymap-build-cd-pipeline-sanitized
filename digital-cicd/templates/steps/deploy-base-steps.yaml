@@ -1,0 +1,55 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: prepareSteps
+  type: object
+  default: null
+- name: deploySteps
+  type: object
+- name: download
+  type: boolean
+  default: false
+- name: checkout
+  type: string
+  default: ''
+
+steps:
+- ${{ if parameters.cfg.mock }}:
+  - bash: |
+      echo '
+      "cfg": ${{convertToJson(parameters.cfg)}},
+      "ctx": ${{convertToJson(parameters.ctx)}}
+      '
+    displayName: deploy(mocking)
+
+- ${{ else }}:
+  ###################### PREPARE ENVIRONMENTS ######################
+  - template: steps-common-prepare.yaml
+    parameters:
+      cfg: ${{ parameters.cfg }}
+      ctx: ${{ parameters.ctx }}
+      checkout: ${{ parameters.checkout }}
+      download: ${{ parameters.download }}
+  - ${{ if parameters.prepareSteps }}:
+    - ${{ each v in parameters.prepareSteps }}:
+      - ${{ v }}
+  ####################### BUILD ####################################
+  - ${{ each v in parameters.cfg.beforeDeploy }}:
+    - ${{ v }}
+  - ${{ if parameters.cfg.replaceVariables }}:
+    - template: ../steps/replace-variables.yaml
+      parameters:
+        cfg: ${{ parameters.cfg }}
+        ctx: ${{ parameters.ctx }}
+  - ${{ if parameters.cfg.customDeploy }}:
+    - ${{ each v in parameters.cfg.customDeploy }}:
+      - ${{ v }}
+  - ${{ else }}:
+    - ${{ each v in parameters.deploySteps }}:
+      - ${{ v }}
+
+  - ${{ each v in parameters.cfg.postDeploy }}:
+    - ${{ v }}

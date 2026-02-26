@@ -1,0 +1,20 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+steps:
+- script: |
+    echo '
+    "cfg": ${{convertToJson(parameters.cfg)}},
+    "ctx": ${{convertToJson(parameters.ctx)}}
+    '
+  displayName: build(mocking)
+- ${{ if parameters.cfg.mock.artifact }}:
+  - template: ../steps/download-artifacts.yaml
+    parameters:
+      specific: ${{parameters.cfg.mock.artifact }}
+      name: ${{coalesce(parameters.cfg.mock.artifact.name,'Build')}}
+      path: ${{coalesce(parameters.cfg.rootPath, parameters.ctx.rootPath)}}

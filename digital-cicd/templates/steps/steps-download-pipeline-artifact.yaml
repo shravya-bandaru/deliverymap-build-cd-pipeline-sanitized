@@ -1,0 +1,28 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: targetPath
+  type: string
+  default: ''
+steps:
+- template: download-artifacts.yaml
+  parameters:
+    name: ${{coalesce(parameters.cfg.artifactName,'Build')}}
+    filterPattern: ${{coalesce(parameters.cfg.file,parameters.cfg.patterns,'**') }}
+    path: ${{coalesce(parameters.cfg.path,parameters.targetPath,parameters.cfg.rootPath,parameters.ctx.rootPath,'$(Build.SourcesDirectory)')}}
+    ${{ if parameters.cfg.specificBuild }}:
+      specific: ${{parameters.cfg.specificBuild}}
+- ${{if parameters.cfg.debug }}:
+  - powershell: |
+      pwd
+      Set-Variable -Name "workingdir" -Value "${{coalesce(parameters.cfg.path,parameters.targetPath,parameters.cfg.rootPath,parameters.ctx.rootPath,'$(Build.SourcesDirectory)')}}"
+      Write-Host "workingdir=${workingdir}"
+      if($IsLinux) {
+        find $workingdir
+      }else {
+        tree /F /a $workingdir
+      }
+    displayName: files in cwd

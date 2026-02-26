@@ -1,0 +1,242 @@
+parameters:
+- name: version
+  type: object
+  default:
+    custom:
+      full: $(Build.SourceBranchName)-$(Build.BuildNumber)
+      short: __SHORT_VER__
+- name: app
+  type: object
+- name: build
+  type: object
+  default: null
+- name: deploy
+  type: object
+  default: null
+- name: scan
+  type: object
+  default: null
+- name: tests
+  type: object
+  default: null
+- name: scanStages
+  type: object
+  default:
+  - name: sanitized
+    display: sanitized
+    template: sanitized
+  - name: qualityGate
+    display: Quality Gate Scan
+    template: scan-sonar.yaml
+  - name: sast
+    display: SAST Scan
+    template: scan-veracode.yaml
+  - name: quickSast
+    display: Quick SAST Scan
+    template: scan-veracode-pipeline-scan.yaml
+  - name: licenseScan
+    display: License Scan
+    template: scan-blackduck.yaml
+  - name: spellCheck
+    display: Spell Check Scan
+    template: scan-spelling-check.yaml
+  - name: grammarCheck
+    display: Grammar Check Scan
+    template: scan-grammar-check.yaml
+  - name: linter
+    display: Linter Scan
+    template: scan-linter.yaml
+  - name: containerSecurity
+    display: Container Security Scan
+    template: scan-twistlock.yaml
+    must: true
+  - name: vsm
+    display: LeanIX Scan
+    template: scan-vsm.yaml
+  - name: dummy
+    display: Dummy Scan
+    template: scan-dummy.yaml
+  - name: dast
+    display: Dast Scan
+    template: scan-netsparker.yaml
+  - name: accessibility
+    display: Accessibility Assessment
+    template: scan-accessibility-assessment.yaml
+- name: cdStages
+  type: object
+  default:
+  - name: Dev
+    dependsOn:
+    - debug
+    - Build
+  - name: Qa
+    dependsOn:
+    - debug
+    - Build
+    - Dev
+  - name: Stage
+    dependsOn:
+    - debug
+    - Build
+    - Dev
+    - Qa
+  - name: Uat
+    dependsOn:
+    - debug
+    - Build
+    - Dev
+    - Qa
+  - name: Demo
+    dependsOn:
+    - debug
+    - Build
+    - Dev
+    - Qa
+  - name: Prod
+    dependsOn:
+    - debug
+    - Build
+    - Dev
+    - Qa
+    - Uat
+    - Stage
+    - sast
+    - qualityGate
+    - containerSecurity
+    - licenseScan
+    - sanitized
+    - spellCheck
+    - grammarCheck
+    - vsm
+    - accessibility
+    - dummy
+- name: pr
+  type: object
+  default:
+    enforceUnitTest: true
+    targetBranches:
+    - master
+    - develop
+    stages:
+    - Build
+    - qualityGate
+    - containerSecurity
+    - sanitized
+    - spellCheck
+    - grammarCheck
+    - quickSast
+    - dummy
+    - vsm
+    - accessibility
+    - dast
+    - linter
+- name: variables
+  type: object
+  default: null
+- name: ctx
+  type: object
+  default: null
+- name: constants
+  type: object
+  default:
+    defaultScanConfig:
+      containerSecurity:
+        enabled: true
+resources:
+  containers:
+  - container: cli
+    image: sanitized
+    endpoint: sanitized
+variables:
+- name: ver
+  ${{if parameters.version.custom }}:
+    value: ${{parameters.version.custom.full}}
+  ${{elseif parameters.version.gitVersion }}:
+    value: $(Build.BuildNumber)
+  ${{else}}:
+    value: ${{ parameters.version.major}}.${{ parameters.version.minor}}.$(Build.BuildNumber)
+- name: BUILD_SHORT_VER
+  ${{if parameters.version.custom }}:
+    value: ${{replace(parameters.version.custom.short,'__SHORT_VER__',variables['Build.SourceBranchName'])}}
+  ${{elseif parameters.version.gitVersion }}:
+    value: ${{variables['Build.SourceBranchName']}}
+  ${{else}}:
+    value: v${{ parameters.version.major}}.${{ parameters.version.minor}}
+- name: rootPath
+  value: ${{ coalesce(parameters.build.rootPath,'$(Build.SourcesDirectory)') }}
+- name: sanitized
+  value: sanitized
+- name: NODE_TLS_REJECT_UNAUTHORIZED
+  value: 0
+- name: BUILD_REASON_IS_PR
+  value: ${{ lower(or(eq(variables['Build.Reason'],'PullRequest'), eq(parameters.ctx.pr,'true')))
+    }}
+- name: BUILD_SOURCE_BRANCH
+  value: ${{ coalesce(parameters.ctx.sourceBranch,variables['Build.sourceBranch'])
+    }}
+- name: BUILD_SOURCE_VERSION
+  value: ${{ coalesce(parameters.ctx.sourceVersion,variables['Build.SourceVersion'])
+    }}
+- ${{ each v in parameters.variables }}:
+  - ${{ v }}
+stages:
+- template: ../templates/stages/init.yaml
+  parameters:
+    cfg: ${{parameters}}
+    ctx: ${{parameters.ctx}}
+    variables: ${{variables}}
+- ${{if parameters.build }}:
+  - template: ../templates/stages/ci.yaml
+    parameters:
+      cfg: ${{parameters.build}}
+      ctx:
+        rootPath: ${{coalesce(parameters.app.rootPath,'$(Build.SourcesDirectory)')}}
+        ver: ${{variables['ver']}}
+        release: ${{variables['BUILD_SHORT_VER']}}
+        commitId: sanitized
+        appId: sanitized
+        ${{ if variables['BUILD_REASON_IS_PR'] }}:
+          enforceUnitTest: true
+- ${{ each s in parameters.cdStages }}:
+  - template: ../templates/stages/cd.yaml
+    parameters:
+      stages: ${{parameters.deploy}}
+      ctx:
+        rootPath: ${{coalesce(parameters.app.rootPath,'$(Build.SourcesDirectory)')}}
+        build: ${{parameters.build}}
+        appId: sanitized
+        ver: ${{variables['ver']}}
+        release: ${{variables['BUILD_SHORT_VER']}}
+        commitId: sanitized
+      tests: ${{parameters.tests}}
+      scan:
+        ${{ if parameters.scan }}:
+          ${{each ss in parameters.scan }}:
+            ${{ ss.key }}: sanitized
+          ${{if not(parameters.scan.containerSecurity)}}:
+            containerSecurity:
+              enabled: true
+        ${{ else}}:
+          containerSecurity:
+            enabled: true
+      spec: ${{s}}
+      ${{if eq(variables['BUILD_REASON_IS_PR'],'true') }}:
+        filter: ${{ parameters.pr.stages }}
+- ${{if parameters.build }}:
+  - ${{ each v in parameters.scanStages }}:
+    - template: ../templates/stages/scan-with-defaults.yaml
+      parameters:
+        spec: ${{v}}
+        scan: ${{parameters.scan}}
+        ${{if eq(variables['BUILD_REASON_IS_PR'],'true') }}:
+          filter: ${{ parameters.pr.stages }}
+        ctx:
+          rootPath: ${{coalesce(parameters.app.rootPath,'$(Build.SourcesDirectory)')}}
+          ver: ${{variables['ver']}}
+          release: ${{variables['BUILD_SHORT_VER']}}
+          containers:
+          - ${{ each x in parameters.build }}:
+            - ${{if x.image}}:
+              - ver: ${{variables['ver']}}
+                registry: ${{x.registry}}
+                image: ${{x.image}}

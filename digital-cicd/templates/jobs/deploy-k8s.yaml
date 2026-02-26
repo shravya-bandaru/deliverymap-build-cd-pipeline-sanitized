@@ -1,0 +1,40 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+jobs:
+- template: ./deploy-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    deploySteps:
+    - task: Bash@3
+      displayName: prepare the deployment.yaml
+      inputs:
+        targetType: 'inline'
+        script: |
+          sed -Ei "s|image-tag-placeholder|${{coalesce(parameters.cfg.ver,parameters.ctx.ver)}}|g"  ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}/k8s/${{parameters.cfg.environment}}/deployment.yaml
+    - task: Kubernetes@1
+      displayName: apply deployment.yaml
+      inputs:
+        connectionType: 'Kubernetes Service Connection'
+        command: 'apply'
+        kubernetesServiceEndpoint: ${{ parameters.cfg.serviceConnection}}
+        namespace: ${{ coalesce(parameters.cfg.namespace,parameters.cfg.environment)}}
+        arguments: -f ${{ coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath,'.')}}/k8s/${{parameters.cfg.environment}}
+    - ${{if eq(parameters.cfg.forcePodRestart, 'true')  }}:
+      - task: Kubernetes@1
+        displayName: Restart Pods
+        inputs:
+          connectionType: 'Kubernetes Service Connection'
+          kubernetesServiceEndpoint: ${{ parameters.cfg.serviceConnection}}
+          namespace: ${{ coalesce(parameters.cfg.namespace,parameters.cfg.environment)}}
+          command: 'rollout'
+          arguments: restart deploy/${{parameters.cfg.deployName}}
+    - template: ../steps/k8sValidation.yaml
+      parameters:
+        cfg: ${{parameters.cfg}}
+        ctx: ${{parameters.ctx}}

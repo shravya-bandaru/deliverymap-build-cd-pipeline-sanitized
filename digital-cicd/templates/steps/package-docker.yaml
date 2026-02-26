@@ -1,0 +1,62 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+
+steps:
+- ${{ each x in parameters.cfg.extraRegistries }}:
+  - task: Docker@2
+    inputs:
+      containerRegistry: ${{x}}
+      command: 'login'
+      addPipelineData: false
+    displayName: docker login '${{x}}'
+
+- task: Docker@2
+  displayName: ${{coalesce( parameters.ctx.display, 'docker build')}}
+  env:
+    DOCKER_BUILDKIT: ${{coalesce( parameters.cfg.buildkit, '0')}}
+  inputs:
+    containerRegistry: ${{ parameters.cfg.registry }}
+    repository: ${{ parameters.cfg.image }}
+    command: 'build'
+
+    # config Dockerfile
+    ${{ if startsWith(parameters.cfg.dockerfile,'/') }}:
+      Dockerfile: ${{ parameters.cfg.dockerfile }}
+    ${{ else }}:
+      ${{ if parameters.ctx.rootPath }}:
+        Dockerfile: ${{coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath)}}/${{ coalesce(parameters.cfg.dockerfile,'**/Dockerfile') }}
+      ${{else}}:
+        Dockerfile: ${{ coalesce(parameters.cfg.dockerfile,'**/Dockerfile') }}
+
+    # config buildContext
+    ${{ if startsWith(parameters.cfg.dockerBuildContext,'/') }}:
+      buildContext: ${{ parameters.cfg.dockerBuildContext }}
+    ${{ elseif parameters.cfg.dockerBuildContext}}:
+      ${{ if parameters.ctx.rootPath }}:
+        buildContext: ${{coalesce(parameters.cfg.rootPath,parameters.ctx.rootPath)}}/${{parameters.cfg.dockerBuildContext}}
+      ${{else}}:
+        buildContext: ${{parameters.cfg.dockerBuildContext}}
+
+    # config arguments
+    ${{if parameters.cfg.dockerBuildArguments}}:
+      arguments: ${{ parameters.cfg.dockerBuildArguments}}
+    tags: |
+      $(Build.SourceVersion)
+      ${{ parameters.ctx.ver }}
+      ${{ parameters.cfg.tags }}
+
+- task: Docker@2
+  displayName: push
+  inputs:
+    containerRegistry: ${{ parameters.cfg.registry }}
+    repository: ${{ parameters.cfg.image }}
+    command: 'push'
+    tags: |
+      $(Build.SourceVersion)
+      ${{ parameters.ctx.ver }}
+      ${{ parameters.cfg.tags }}

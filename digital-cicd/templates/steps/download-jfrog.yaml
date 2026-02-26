@@ -1,0 +1,44 @@
+#  cfg:
+#    project: string # the name of project
+#    to: string #target
+#    from: string #source
+#    connection: string #service connection use to connect jfrog
+#    artifactory: string #jfrog repo
+#  ctx: string #pipeline context values, e.g. rootPath or app_id of current build
+
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+steps:
+- ${{ if parameters.cfg.debug }}:
+  - bash: |
+      echo '${{convertToJson(parameters.cfg)}}'
+      echo '
+      connection: "${{coalesce(parameters.cfg.connection,'artifacts-west.pwc.com')}}"
+      "pattern": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.from}}",
+      "target": "${{parameters.cfg.to}}"
+      '
+    displayName: download(debug)
+- ${{ if parameters.cfg.mock }}:
+  - bash: |
+      echo 'mocking'
+    displayName: download(mocking)
+- ${{ else }}:
+  - task: ArtifactoryGenericDownload@3
+    inputs:
+      connection: "${{coalesce(parameters.cfg.connection,'artifacts-west.pwc.com')}}"
+      specSource: 'taskConfiguration'
+      fileSpec: |
+        {
+          "files": [
+            {
+              "pattern": "${{coalesce(parameters.cfg.artifactory,'w00014-pwc-us-digital-devops-generic')}}/${{coalesce(parameters.cfg.project,'digital-dx')}}/${{parameters.cfg.from}}",
+              "target": "${{parameters.cfg.to}}"
+            }
+          ]
+        }
+      failNoOp: true

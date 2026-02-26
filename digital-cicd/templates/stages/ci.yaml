@@ -1,0 +1,32 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+stages:
+- stage: Build
+  displayName: "Build ${{parameters.ctx.release}}"
+  jobs:
+  # BUILD
+  - ${{ if parameters.cfg[0] }}:
+    - ${{ each v in parameters.cfg}}:
+      - template: ../jobs/build-${{v.type}}.yaml
+        parameters:
+          cfg: ${{ v }}
+          ctx:
+            name: ${{replace(coalesce(v.name,v.type),'-','_')}}_build
+            display: ${{v.type}} Build
+            ver: ${{parameters.ctx.ver}}
+            rootPath: ${{parameters.ctx.rootPath}}
+            appId: ${{parameters.ctx.appId}}
+  - ${{ elseif parameters.cfg }}:
+    - template: ../jobs/build-${{parameters.cfg.type}}.yaml
+      parameters:
+        cfg: ${{ parameters.cfg }}
+        ctx:
+          name: ${{replace(coalesce(parameters.cfg.name,parameters.cfg.type),'-','_')}}_build
+          display: ${{parameters.cfg.type}} Build
+          ver: ${{parameters.ctx.ver}}
+          rootPath: ${{parameters.ctx.rootPath}}
+          appId: ${{parameters.ctx.appId}}

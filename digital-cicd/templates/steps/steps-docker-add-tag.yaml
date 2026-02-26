@@ -1,0 +1,21 @@
+parameters:
+- name: cfg
+  type: object
+  default: null
+- name: ctx
+  type: object
+  default: null
+steps:
+- task: Docker@2
+  inputs:
+    containerRegistry: ${{ parameters.cfg.registry }}
+    command: 'login'
+
+- bash: |
+    set -x
+    img="${{ parameters.cfg.registry }}/${{ parameters.cfg.image }}"
+    img0="${img}:${{ parameters.cfg.oldTag }}"
+    img1="${img}:${{ parameters.cfg.newTag }}"
+
+    docker pull ${img0} && docker tag ${img0} ${img1} && docker push ${img1}
+  displayName: 'docker tagging'

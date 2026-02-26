@@ -1,0 +1,23 @@
+steps:
+- powershell: |
+    $Params = @{
+        ContentType = "application/json"
+        Method = "Post"
+        Uri = "$(System.CollectionUri)$(System.TeamProjectId)/_apis/pipelines/$(System.DefinitionId)/preview?api-version=7.0"
+    }
+    $Body=@'
+    {
+        "previewRun": true,
+        "stagesToSkip": [],
+        "resources": {
+            "repositories": {
+                "self": {
+                    "refName": "$(Build.SourceBranch)"
+                }
+            }
+        },
+        "variables": {}
+    }
+    '@
+    (Invoke-RestMethod @Params -Headers @{ Authorization = "Bearer $(System.AccessToken)" } -Body $Body | ConvertTo-Json -Depth 10 |ConvertFrom-Json).finalYaml
+  displayName: View Pipeline YAML

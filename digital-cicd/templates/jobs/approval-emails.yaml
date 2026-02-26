@@ -1,0 +1,18 @@
+parameters:
+- name: cfg
+  type: object
+- name: name
+  type: string
+  default: ''
+
+jobs:
+- job: ${{ parameters.name }}Approval
+  pool: server
+  timeoutInMinutes: ${{ coalesce(parameters.cfg.approvalTimeout,4320) }}
+  steps:
+  - task: ManualValidation@0
+    timeoutInMinutes: ${{ coalesce(parameters.cfg.approvalTimeout,4320) }}
+    inputs:
+      notifyUsers: "${{join('\n',split(parameters.cfg.approval,','))}}"
+      instructions: 'Please review the deployment of this release.'
+      onTimeout: 'reject'

@@ -1,0 +1,28 @@
+parameters:
+- name: v
+  type: object
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+- name: name
+  type: string
+
+jobs:
+- template: ../jobs/deploy-${{parameters.v.type}}.yaml
+  parameters:
+    cfg: ${{ parameters.v }}
+    ctx:
+      build: ${{parameters.ctx.build}}
+      release: ${{parameters.ctx.release}}
+      name: ${{replace(coalesce(parameters.v.name,parameters.v.type),'-','_')}}_deploy
+      display: ${{parameters.v.type}} Deploy
+      ver: ${{parameters.ctx.ver}}
+      rootPath: ${{parameters.ctx.rootPath}}
+      ${{ if parameters.cfg.approval }}:
+        approval: true
+      stage: ${{ parameters.name }}
+      commitId: ${{ parameters.ctx.commitId }}
+      appId: ${{ parameters.ctx.appId }}
+      ${{ if parameters.cfg.environment }}:
+        environment: ${{ parameters.cfg.environment }}

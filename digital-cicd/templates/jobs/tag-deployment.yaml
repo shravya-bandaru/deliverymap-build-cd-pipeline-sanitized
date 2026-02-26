@@ -1,0 +1,26 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: name
+  type: string
+
+jobs:
+- job:
+  displayName: ${{ parameters.name }}:Deploy=succeeded
+  dependsOn:
+  - ${{ each v in parameters.cfg }}:
+    - ${{replace(coalesce(v.name,v.type),'-','_')}}_deploy
+  - ${{if parameters.ctx}}:
+    - ${{each n in parameters.ctx}}:
+      - ${{n.name}}
+
+  steps:
+  - checkout: none
+  - task: tagBuildOrRelease@0
+    inputs:
+      type: 'Build'
+      tags: |
+        ${{ parameters.name }}:Deploy=succeeded

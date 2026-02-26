@@ -1,0 +1,63 @@
+#parameters:
+#  spec:
+#    template: required
+#    name: required, only english charactors
+#    display: required, name as string for display
+#    dependsOn: optional, default is Build
+#  scan:
+#    branches:
+
+parameters:
+- name: spec
+  type: object
+- name: scan
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: args
+  type: object
+  default: null
+- name: filter
+  type: object
+  default: null
+stages:
+# entrance criteria:
+# - 1. this scan is configured(enabled by default)
+# - 2. when filter is defined, this scan should be listed in the filter.
+# - 3. when branches is configured, current branch should be listed.
+- ${{ if and(parameters.scan[parameters.spec.name],eq(lower(coalesce(parameters.scan[parameters.spec.name].enabled,'true')), 'true')) }}:
+  - ${{if or(not(parameters.filter),containsValue(parameters.filter,parameters.spec.name))}}:
+    - stage: ${{parameters.spec.name}}
+      displayName: ${{parameters.spec.display}}
+      ${{if parameters.scan[parameters.spec.name].branches}}:
+        condition: |
+          and(
+            succeeded(),
+            or(
+              contains('${{parameters.scan[parameters.spec.name].branches}}',variables['BUILD_SOURCE_BRANCH']),
+              eq(variables['BUILD_REASON_IS_PR'],'true')
+            )
+          )
+      ${{elseif parameters.scan[parameters.spec.name].conditions}}:
+        condition: |
+          and(
+            succeeded(),
+            or(
+              ${{parameters.scan[parameters.spec.name].conditions}},
+              eq(variables['BUILD_REASON_IS_PR'],'true')
+            )
+          )
+      dependsOn: ${{ coalesce(parameters.spec.dependsOn,'Build')}}
+      jobs:
+      - template: "../jobs/${{parameters.spec.template}}"
+        parameters:
+          cfg: ${{ coalesce(parameters.args,parameters.scan[parameters.spec.name])}}
+          ctx:
+            name: ${{parameters.spec.name}}
+            display: ${{parameters.spec.display}}
+            rootPath: "${{ parameters.ctx.rootPath }}"
+            ver: ${{ parameters.ctx.ver}}
+            release: ${{ parameters.ctx.release}}
+            ${{ if parameters.ctx.containers}}:
+              containers: ${{ parameters.ctx.containers}}

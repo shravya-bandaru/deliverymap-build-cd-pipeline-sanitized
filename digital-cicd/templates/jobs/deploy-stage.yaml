@@ -1,0 +1,40 @@
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: name
+  type: string
+  default: Dev
+- name: vars #TODO: confirm the usage
+  type: object
+  default: null
+
+jobs:
+####################### APPROVAL #######################
+- ${{ if parameters.cfg.approval }}:
+  # use Manual Validation is approval specified
+  - template: approval-emails.yaml
+    parameters:
+      cfg: ${{ parameters.cfg }}
+#      ctx: ${{ parameters.ctx }}
+      name: ${{ parameters.name }}
+
+######################## DEPLOY ######################
+- ${{ each v in parameters.cfg.jobs}}:
+  - template: deploy-stage-jobs.yaml
+    parameters:
+      cfg: ${{ parameters.cfg }}
+      ctx: ${{ parameters.ctx }}
+      v: ${{ v }}
+      name: ${{ parameters.name }}
+- ${{ if gt(length(parameters.cfg.jobs),0) }}:
+  - template: deploy-stage-jobs.yaml
+    parameters:
+      cfg: ${{ parameters.cfg }}
+      ctx: ${{ parameters.ctx }}
+      v:
+        type: tag
+        name: ${{ parameters.name }}
+      name: ${{ parameters.name }}

@@ -1,0 +1,101 @@
+# e.g
+#git-lint: # run branch policy validation. requires the shared service connection: w00014-pwc-us-digital-devops-generic
+#  config: string # optional, inline rules configuration. If not provided, will look for .git-lint.yml in the current directory. If not found, will use default rules.
+
+parameters:
+- name: cfg
+  type: object
+  default: {}
+- name: ctx
+  type: object
+  default: null
+- name: const
+  type: object
+  default:
+    DEFAULT_RULES: |
+      rules:
+        branch_count:
+          max: 100
+          warn: true
+        branch_last_commit:
+          max_duration: 3M
+        branch_name:
+          allow: true
+          patterns:
+          - master
+          - main
+          - develop
+          - feature/\d+-.*
+          - release/v.*
+        # branch_singleton: # Ensure there is only one release/* branch at a time.
+        #   singletons:
+        #   - release/v.*
+        git_ignore:
+          entries:
+          - '*.log'
+        # git_keep: #Ensure a directory is kept by git
+        #   directories:
+        #   - bin
+        tag_name:
+          allow: true
+          patterns:
+          - v.*
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    download: false
+    prepareSteps:
+    - checkout: self
+      fetchDepth: 0
+    scanSteps:
+    - template: ../steps/download-jfrog.yaml
+      parameters:
+        cfg:
+          project: cicd/git-lint/0.0.1
+          connection: w00014-pwc-us-digital-devops-generic
+          to: git-lint
+          from: git-lint
+    - template: ../steps/download-jfrog.yaml
+      parameters:
+        cfg:
+          project: cicd/git-lint/0.0.1
+          connection: w00014-pwc-us-digital-devops-generic
+          to: git-lint.exe
+          from: git-lint_win_amd64.exe
+    - powershell: |
+        #Get-ChildItem -Path "." -Recurse -File | ForEach-Object {
+        #  $_.FullName
+        #}
+        # Set config file path and content
+        $GIT_LINT_CONFIG_FILE = ".git-lint.yml"
+        if (-Not (Test-Path $GIT_LINT_CONFIG_FILE)) {
+            @"
+        ${{ coalesce(parameters.cfg.config,parameters.const.DEFAULT_RULES) }}
+        "@  | Out-File -FilePath "/tmp/git-lint.yml"
+            $GIT_LINT_CONFIG_FILE = "/tmp/git-lint.yml"
+            Write-Host "No .git-lint.yml found, using in-line rules:"
+
+        }
+        Get-Content $GIT_LINT_CONFIG_FILE
+
+        # Run git-lint
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        if ( "$(Agent.OS)" -eq "Linux" ) {
+            chmod +x ./cicd/git-lint/0.0.1/git-lint
+            ./cicd/git-lint/0.0.1/git-lint -c $GIT_LINT_CONFIG_FILE > $tmpFile
+        } else {
+            .\cicd\git-lint\0.0.1\git-lint.exe -c $GIT_LINT_CONFIG_FILE > $tmpFile
+        }
+
+        # Check exit code
+        if ($LASTEXITCODE -ne 0) {
+            $GIT_LINT_ERROR = 1
+        }
+        Get-Content $tmpFile
+        Remove-Item $tmpFile
+        ## TODO: add a step to create bugs in Azure DevOps
+        # exit $GIT_LINT_ERROR
+      continueOnError: true
+      displayName: 'git-lint'

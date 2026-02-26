@@ -1,0 +1,16 @@
+parameters:
+- name: cfg
+  type: object
+  default: null
+- name: ctx
+  type: object
+  default: null
+steps:
+- task: Kubernetes@1
+  displayName: wait rollout to complete
+  inputs:
+    connectionType: 'Kubernetes Service Connection'
+    kubernetesServiceEndpoint: ${{ parameters.cfg.serviceConnection}}
+    namespace: ${{ coalesce(parameters.cfg.namespace,parameters.cfg.environment)}}
+    command: 'rollout'
+    arguments: 'status deploy/${{parameters.cfg.deployName}} --timeout=300s'

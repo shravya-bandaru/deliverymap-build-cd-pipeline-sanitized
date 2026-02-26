@@ -1,0 +1,36 @@
+parameters:
+- name: rootPath
+  type: string
+  default: '.'
+- name: nx
+  type: object
+#  - name: appKit
+#    type: boolean
+#    default: false
+
+jobs:
+- template: ./build-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    prepareSteps:
+    - task: NodeTool@0
+      inputs:
+        ${{ if parameters.nx.node }}:
+          versionSpec: '${{parameters.yarn.node}}'
+        ${{ else }}:
+          versionSpec: '10.x'
+        checkLatest: true
+      displayName: 'Install Node.js'
+    - task: Npm@1
+      displayName: 'Install NX'
+      inputs:
+        command: 'custom'
+        ${{ if parameters.nx.angular }}:
+          customCommand: 'install --save-dev @nrwl/angular'
+        ${{ else }}:
+          customCommand: 'install --save-dev @nrwl/react'
+    buildSteps:
+    - ${{ each v in parameters.nx.command }}:
+      - bash: ${{v}}
+        displayName: '${{v}}'

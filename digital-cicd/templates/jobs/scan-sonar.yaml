@@ -1,0 +1,65 @@
+# parameters:
+# args:
+#   endpoint: DX Sonar
+#   server: https://stage-sonar.pwc.com
+#   projectKey: USA-ADV-Digital_DX
+#   extraProperties: |
+#     sonar.sources=./mn/src/main/java/
+#     sonar.language=java
+#     sonar.java.binaries=./mn/build/classes
+#   autoDownload: default is true
+parameters:
+- name: cfg
+  type: object
+- name: ctx
+  type: object
+  default: null
+
+jobs:
+- template: ./scan-base.yaml
+  parameters:
+    cfg: ${{ parameters.cfg }}
+    ctx: ${{ parameters.ctx }}
+    vars:
+    - name: SONAR_SCANNER_OPTS
+      value: -Djavax.net.ssl.trustStore=/tmp/trustStore.keystore -Djavax.net.ssl.trustStorePassword=changeit
+    - name: NODE_OPTIONS
+      value: --use-openssl-ca ${{ parameters.cfg.nodeOptions }}
+    prepareSteps:
+    ################## PREPARE ENVIRONMENTS ######################
+    - template: ../steps/sonar-prepare.yaml
+      parameters:
+        cfg: ${{ parameters.cfg }}
+        ctx: ${{ parameters.ctx }}
+    scanSteps:
+    ####################### CODE SCAN  #############################
+    # https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/sonar-qube-prepare-v5?view=azure-pipelines
+    - template: ../steps/task-base.yaml
+      parameters:
+        task: SonarQubePrepare@7
+        displayName: Prepare analysis on SonarQube
+        cfg: ${{ parameters.cfg }}
+        ctx: ${{ parameters.ctx }}
+        override:
+          SonarQube: "${{ parameters.cfg.endpoint }}"
+          ${{ if parameters.cfg.configFile }}:
+            configFile: "${{ parameters.cfg.configFile }}"
+          ${{else}}:
+            cliProjectName: '${{ coalesce(parameters.cfg.projectName, parameters.cfg.projectKey) }}'
+            cliProjectVersion: "${{ coalesce(parameters.cfg.version,parameters.ctx.ver,'$(ver)') }}"
+            cliSources: "${{ coalesce(parameters.cfg.sources,'$(rootPath)') }}"
+            cliProjectKey: '${{ parameters.cfg.projectKey }}'
+          extraProperties: "${{ parameters.cfg.extraProperties }}"
+        protected:
+          scannerMode: 'CLI'
+          ${{ if parameters.cfg.configFile }}:
+            configMode: 'file'
+          ${{else}}:
+            configMode: 'manual'
+    - task: SonarQubeAnalyze@7
+      inputs:
+        jdkversion: 'JAVA_HOME_17_X64'
+    - task: SonarQubePublish@7
+      displayName: Publish Quality Gate Result
+      inputs:
+        pollingTimeoutSec: '300'

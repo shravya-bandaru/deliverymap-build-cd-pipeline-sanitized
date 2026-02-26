@@ -1,0 +1,64 @@
+# Create a stage with the specification.
+# eg. stage name is 'Dev'
+#   dev:
+#     template: options, default is cd-stage.yaml
+#     enabled: optional, default is true
+#     branches: optional
+#     conditions: optional
+#     variables: optional
+parameters:
+- name: stages # deployment configuration for all environments
+  type: object
+- name: ctx
+  type: object
+  default: null
+- name: spec
+  type: object
+- name: tests
+  type: object
+- name: scan
+  type: object
+- name: filter # used for selecting stages for pr flow
+  type: object
+  default: null
+
+stages:
+- ${{ if parameters.stages}}:
+  - ${{ each stg in parameters.stages}}:
+    # if the stage name matches, and is not disabled, and is not filtered out when in a pr flow
+    - ${{ if and(eq(stg.key,lower(parameters.spec.name)), coalesce(stg.value.enabled, true), or(not(parameters.filter),containsValue(parameters.filter,parameters.spec.name)))}}:
+      - template: ${{coalesce(stg.value.template,'cd-stage.yaml')}}
+        parameters:
+          spec:
+            name: ${{ parameters.spec.name }}
+            ${{if stg.value.branches}}:
+              condition: contains('${{stg.value.branches}}',variables['BUILD_SOURCE_BRANCH'])
+            ${{elseif stg.value.conditions}}:
+              condition: ${{stg.value.conditions}}
+            baseCondition:
+            - ${{ each d in parameters.spec.dependsOn }}:
+              - ${{ if and(eq('Build',d),parameters.ctx.build) }}:
+                - in(dependencies.Build.result, 'Succeeded','SucceededWithIssues', 'Skipped')
+              - ${{ elseif and(parameters.stages[lower(d)], coalesce(parameters.stages[lower(d)].conditions,true)) }}:
+                - in(dependencies.${{ d }}.result, 'Succeeded', 'SucceededWithIssues', 'Skipped')
+              - ${{ elseif and(parameters.scan[d], eq(lower(coalesce(parameters.scan[d].enabled,true)), 'true')  ) }}:
+                - in(dependencies.${{ d }}.result, 'Succeeded','SucceededWithIssues', 'Skipped')
+              - ${{ else }}:
+                - true
+            ${{if stg.value.variables }}:
+              variables:
+              - ${{ each v in stg.value.variables }}:
+                - ${{ v }}
+            dependsOn:
+            - ${{ each d in parameters.spec.dependsOn }}:
+              - ${{ if and(eq('Build',d),parameters.ctx.build) }}:
+                - Build
+              - ${{ elseif and(parameters.stages[lower(d)], coalesce(parameters.stages[lower(d)].conditions,true)) }}:
+                - ${{ d }}
+              - ${{ elseif and(parameters.scan[d], eq(lower(coalesce(parameters.scan[d].enabled,true)), 'true')  ) }}:
+                - ${{if not(and(eq('containerSecurity',d),eq('',join('',parameters.ctx.build.*.image))))}}:
+                  - ${{ d }}
+          cfg: ${{ stg.value }}
+          ctx: ${{ parameters.ctx }}
+          ${{ if and(parameters.tests,parameters.tests[stg.key]) }}:
+            tests: ${{ parameters.tests[stg.key] }}
